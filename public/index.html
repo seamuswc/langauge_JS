@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Daily Sentence Subscription</title>
+	<link rel="icon" href="data:," />
+	<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+	<main class="container">
+		<form id="subscribe-form" style="margin:12px 0 16px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+			<input id="email" type="email" placeholder="you@example.com" required style="padding:8px;border-radius:8px;border:1px solid #333;background:#111;color:#eee" />
+			<select id="language" style="padding:8px;border-radius:8px;border:1px solid #333;background:#111;color:#eee">
+				<option value="japanese">Japanese</option>
+				<option value="english">English</option>
+			</select>
+			<select id="plan" style="padding:8px;border-radius:8px;border:1px solid #333;background:#111;color:#eee">
+				<option value="month">1 month — 2 USDC</option>
+				<option value="year">1 year — 12 USDC</option>
+			</select>
+			<button class="button" type="submit">Subscribe</button>
+		</form>
+		<h1>Subscribe for Daily Sentences</h1>
+		<p>Subscribe to receive a daily sentence. You'll pay after selecting a plan.</p>
+		<div id="qr" class="qr" style="display:none"></div>
+		<p class="ref" id="ref-line" style="display:none">Reference: <span id="ref-text"></span></p>
+		<hr />
+		<section>
+			<div id="sentence">
+				<div id="kanji"></div>
+				<div id="hiragana"></div>
+				<div id="romaji"></div>
+				<div id="breakdown"></div>
+				<div id="grammar"></div>
+				<div id="meaning"></div>
+			</div>
+		</section>
+	</main>
+
+	<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+	<script src="./script.js?v=6"></script>
+</body>
+</html>
+
