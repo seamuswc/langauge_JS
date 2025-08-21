@@ -9,7 +9,7 @@
 </head>
 <body>
 	<main class="container">
-		<form id="subscribe-form" style="margin:12px 0 16px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+		<form id="subscribe-form" style="margin:12px 0 8px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
 			<input id="email" type="email" placeholder="you@example.com" required style="padding:8px;border-radius:8px;border:1px solid #333;background:#111;color:#eee" />
 			<select id="language" style="padding:8px;border-radius:8px;border:1px solid #333;background:#111;color:#eee">
 				<option value="japanese">Japanese</option>
@@ -19,8 +19,11 @@
 				<option value="month">1 month — 2 USDC</option>
 				<option value="year">1 year — 12 USDC</option>
 			</select>
-			<button class="button" type="submit">Subscribe</button>
 		</form>
+		<div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px">
+			<button id="btn-solana" class="button" type="button">Subscribe with Solana</button>
+			<button id="btn-aptos" class="button" type="button">Subscribe with Aptos</button>
+		</div>
 		<h1>Subscribe for Daily Sentences</h1>
 		<p>Subscribe to receive a daily sentence. You'll pay after selecting a plan.</p>
 		<div id="qr" class="qr" style="display:none"></div>

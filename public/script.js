@@ -95,37 +95,42 @@
 			.then(j => { if (j) renderSentence(j); })
 			.catch(() => {});
 
-		// Subscribe form
-		const form = document.getElementById('subscribe-form');
-		if (form) {
-			form.addEventListener('submit', async function (e) {
-				e.preventDefault();
-				const email = document.getElementById('email').value.trim();
-				const language = document.getElementById('language').value;
-				const plan = document.getElementById('plan').value;
-				if (!email) return;
-				// Start order to get reference and amount
-				let start;
-				try {
-					const resp = await fetch('/api/subscribe/start', {
-						method: 'POST', headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ email, language, plan })
-					});
-					start = await resp.json();
-					if (!resp.ok) throw new Error(start && start.error || 'Failed to start');
-				} catch (err) { alert('Failed to start payment: ' + err.message); return; }
+		// Subscribe flow (shared start)
+		async function startOrder(email, language, plan) {
+			const resp = await fetch('/api/subscribe/start', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email, language, plan })
+			});
+			const j = await resp.json();
+			if (!resp.ok) throw new Error(j && j.error || 'Failed to start');
+			return j;
+		}
 
-				const query = { amount: String(start.amount), "spl-token": CONFIG.usdcMint, reference: start.reference, label, message };
+		const form = document.getElementById('subscribe-form');
+		const btnSol = document.getElementById('btn-solana');
+		const btnApt = document.getElementById('btn-aptos');
+		function getFormVals() {
+			return {
+				email: document.getElementById('email').value.trim(),
+				language: document.getElementById('language').value,
+				plan: document.getElementById('plan').value
+			};
+		}
+
+		if (btnSol) {
+			btnSol.addEventListener('click', async function () {
+				const { email, language, plan } = getFormVals();
+				if (!email) { alert('Enter email'); return; }
+				let start;
+				try { start = await startOrder(email, language, plan); } catch (e) { alert(e.message); return; }
+				const query = { amount: String(start.amount), "spl-token": CONFIG.usdcMint, reference: start.reference, label: 'Subscription Payment', message: 'Thank you!' };
 				const payUrl = buildSolanaPayUrl(CONFIG.recipient, query);
 				const qrEl = document.getElementById("qr");
 				qrEl.style.display = '';
 				document.getElementById('ref-line').style.display = '';
 				document.getElementById('ref-text').textContent = start.reference;
 				renderQr(qrEl, payUrl);
-				// Also try provider flow automatically
 				try { await handlePhantomPay(start.reference); } catch (_) {}
-
-				// Poll payment status until confirmed
 				(async function poll() {
 					for (let i = 0; i < 30; i++) {
 						await new Promise(r => setTimeout(r, 2000));
@@ -136,10 +141,29 @@
 							if (j && j.paid) { alert('Payment confirmed! Subscription activated.'); return; }
 						} catch (_) {}
 					}
-					alert('Payment not confirmed yet. You can complete it later from your wallet.');
+					alert('Payment not confirmed yet.');
 				})();
 			});
 		}
+
+		if (btnApt) {
+			btnApt.addEventListener('click', async function () {
+				const { email, language, plan } = getFormVals();
+				if (!email) { alert('Enter email'); return; }
+				let start;
+				try { start = await startOrder(email, language, plan); } catch (e) { alert(e.message); return; }
+				// Simple Aptos Pay URL (Pontem supports deep links; placeholder format)
+				const aptosUrl = `aptos:${CONFIG.aptosRecipient}?amount=${encodeURIComponent(String(start.amount))}&token=USDC&reference=${encodeURIComponent(start.reference)}`;
+				const qrEl = document.getElementById("qr");
+				qrEl.style.display = '';
+				document.getElementById('ref-line').style.display = '';
+				document.getElementById('ref-text').textContent = start.reference;
+				renderQr(qrEl, aptosUrl);
+				// Optionally try opening Pontem if available
+				try { window.location.href = aptosUrl; } catch (_) {}
+			});
+		}
+
 	}
 
 	if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

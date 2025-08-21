@@ -93,6 +93,7 @@ async function main() {
 	app.get('/api/config', async () => ({
 		recipient: process.env.SOLANA_MERCHANT_ADDRESS || DEFAULT_RECIPIENT,
 		usdcMint: USDC_MINT.toBase58(),
+		aptosRecipient: process.env.APTOS_MERCHANT_ADDRESS || '',
 		defaultAmount: 2
 	}));
 
@@ -275,13 +276,16 @@ async function main() {
 					const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
 					const now = Date.now();
 					const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-					const expiresAt = now + durationMs;
 					if (idx >= 0) {
-						subStore.subscribers[idx].isSubscribed = true;
-						subStore.subscribers[idx].expiresAt = expiresAt;
-						subStore.subscribers[idx].language = order.language || subStore.subscribers[idx].language;
-						subStore.subscribers[idx].updatedAt = now;
+						const current = subStore.subscribers[idx];
+						const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
+						const newExpires = base + durationMs;
+						current.isSubscribed = true;
+						current.expiresAt = newExpires;
+						current.language = order.language || current.language;
+						current.updatedAt = now;
 					} else {
+						const expiresAt = now + durationMs;
 						subStore.subscribers.push({ email: order.email, language: order.language, isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
 					}
 					saveSubscribers(subStore);
