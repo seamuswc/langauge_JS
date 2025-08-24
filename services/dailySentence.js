@@ -30,14 +30,45 @@ const DEFAULT_PROMPT = (
     "Remember, use grammatical structures that an adult would need, not too simple"
 );
 
-function getPrompt(source, target) {
+function getPrompt(source, target, level) {
     const promptPath = path.join(__dirname, '..', 'resources', 'prompts', `${source}_${target}.txt`);
     try {
         if (fs.existsSync(promptPath)) {
-            return fs.readFileSync(promptPath, 'utf8');
+            const base = fs.readFileSync(promptPath, 'utf8');
+            const lvl = level || 'N3';
+            const t = String(target || '').toLowerCase();
+            if (t === 'japanese') {
+                return `Target JLPT level: ${lvl}. Use vocabulary and grammar appropriate to ${lvl}.\n\n` + base;
+            }
+            if (t === 'english') {
+                return `Target CEFR level: ${lvl}. Use vocabulary and grammar appropriate to ${lvl}.\n\n` + base;
+            }
+            if (t === 'thai') {
+                return `Target Thai level: ${lvl}. Use vocabulary and grammar appropriate to ${lvl}.\n\n` + base;
+            }
+            return base;
         }
     } catch (_) {}
-    return DEFAULT_PROMPT;
+    // Inject JLPT level guidance
+    const lvl = level || 'N3';
+    const t = String(target || '').toLowerCase();
+    if (t === 'japanese') {
+        return `Target JLPT level: ${lvl}. Use vocabulary and grammar appropriate to ${lvl}.\n\n` + DEFAULT_PROMPT;
+    }
+    // English target: use CEFR levels
+    return (
+        `Target CEFR level: ${lvl}. Use vocabulary and grammar appropriate to ${lvl}.\n\n` +
+        "Generate a new English sentence suitable for Japanese learners with this exact structure:\n\n" +
+        "English: [sentence]\n" +
+        "読み方: [katakana reading]\n" +
+        "Word Breakdown: [word-by-word]\n" +
+        "Grammar: [explanation]\n" +
+        "Meaning: [japanese]\n\n" +
+        "Constraints:\n" +
+        "- Use natural, adult-relevant language.\n" +
+        "- One item per line in Word Breakdown and Grammar.\n" +
+        "- Only a single 'Grammar:' heading. No extra commentary.\n"
+    );
 }
 
 function normalizeMultiline(text) {
@@ -61,6 +92,20 @@ function parseResponse(data, source, target) {
             return {
                 kanji: m[1],
                 hiragana: m[2],
+                romaji: '',
+                breakdown: normalizeMultiline((m[3] || '').trim()),
+                grammar: normalizeMultiline((m[4] || '').trim()),
+                meaning: (m[5] || '').trim()
+            };
+        }
+    }
+
+    if (String(target).toLowerCase() === 'thai') {
+        const m = cleaned.match(/Thai:\s*(.*?)\nReading:\s*(.*?)\nWord Breakdown:\s*(.*?)\nGrammar:\s*(.*?)\nMeaning:\s*(.*)/s);
+        if (m) {
+            return {
+                kanji: (m[1] || '').trim(), // Thai sentence
+                hiragana: (m[2] || '').trim(), // romanization
                 romaji: '',
                 breakdown: normalizeMultiline((m[3] || '').trim()),
                 grammar: normalizeMultiline((m[4] || '').trim()),
@@ -96,12 +141,12 @@ function getFallbackSentence(source, target) {
     };
 }
 
-async function fetchFromDeepSeek(source, target) {
+async function fetchFromDeepSeek(source, target, level) {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set');
     const body = {
         model: 'deepseek-chat',
-        messages: [{ role: 'user', content: getPrompt(source, target) }]
+        messages: [{ role: 'user', content: getPrompt(source, target, level) }]
     };
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
@@ -121,16 +166,16 @@ async function fetchFromDeepSeek(source, target) {
 
 // Simple in-memory cache with TTL
 const cache = new Map();
-function cacheKey(source, target) { return `daily_sentence_${source}_to_${target}`; }
+function cacheKey(source, target, level) { return `daily_sentence_${source}_to_${target}_lvl_${level}`; }
 
-async function generateSentence(source, target) {
-    const key = cacheKey(source, target);
+async function generateSentence(source, target, level='N3') {
+    const key = cacheKey(source, target, level);
     const now = Date.now();
     const cached = cache.get(key);
     if (cached && cached.expiresAt > now) return cached.value;
 
     try {
-        const data = await fetchFromDeepSeek(source, target);
+        const data = await fetchFromDeepSeek(source, target, level);
         const parsed = parseResponse(data, source, target);
         cache.set(key, { value: parsed, expiresAt: now + 12 * 60 * 60 * 1000 });
         return parsed;

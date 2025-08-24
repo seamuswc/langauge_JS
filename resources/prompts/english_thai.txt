@@ -1,0 +1,24 @@
+# Custom prompt for English -> Thai daily sentence (for Thai learners)
+# Level (Beginner/Intermediate/Advanced) is injected automatically by the server.
+
+Generate a new Thai sentence suitable for English-speaking learners with this exact structure:
+
+Thai: [sentence]
+Reading: [romanization]
+Word Breakdown: [word-by-word]
+Grammar: [explanation]
+Meaning: [english]
+
+Constraints:
+- Use natural Thai matching the specified level (Beginner/Intermediate/Advanced).
+- Prefer everyday, adult-relevant topics.
+- Word Breakdown: one item per line like "word (part of speech) (simple English gloss)".
+- Grammar: one item per line; only a single "Grammar:" heading.
+- No extra commentary or questions.
+
+Example:
+Thai: วันนี้อากาศดีมาก
+Reading: wan-níi aa-gàat dee mâak
+Word Breakdown: วันนี้ (noun) (today) + อากาศ (noun) (weather) + ดี (adjective) (good) + มาก (adverb) (very)
+Grammar: Adjective + มาก = very + adjective
+Meaning: The weather is very nice today.

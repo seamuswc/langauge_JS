@@ -11,9 +11,6 @@ const { Connection, PublicKey, SystemProgram, Transaction, TransactionInstructio
 const { generateSentence } = require('./services/dailySentence');
 const { sendEmailWithTemplate } = require('./services/tencentSes');
 const DEFAULT_RECIPIENT = '8zS5w8MHSDQ4Pc12DZRLYQ78hgEwnBemVJMrfjUN6xXj';
-// Aptos SDK (for future parity). We will NOT touch Solana code.
-let Aptos;
-try { Aptos = require('@aptos-labs/ts-sdk'); } catch (_) { Aptos = null; }
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8787;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -90,95 +87,15 @@ async function buildUsdcTransferTx({ payer, recipient, amount, reference }) {
 async function main() {
 	const app = Fastify({ logger: true });
 	await app.register(cors, { origin: true });
-	await app.register(fastifyStatic, { root: path.join(__dirname, 'public'), index: ['index.html'] });
+	await app.register(fastifyStatic, { root: path.join(__dirname, 'react-ui', 'dist'), index: ['index.html'] });
 
 	// Public config for frontend
 	app.get('/api/config', async () => ({
 		recipient: process.env.SOLANA_MERCHANT_ADDRESS || DEFAULT_RECIPIENT,
 		usdcMint: USDC_MINT.toBase58(),
-		aptosRecipient: process.env.APTOS_MERCHANT_ADDRESS || '',
 		defaultAmount: 2
 	}));
 
-	// Aptos: build transfer payload (placeholder; mirrors Solana endpoint shape)
-	app.post('/tx/aptos', async (req, reply) => {
-		try {
-			if (!Aptos) return reply.code(500).send({ error: 'Aptos SDK not installed' });
-			const { recipient, amount } = req.body || {};
-			if (!recipient || !amount) return reply.code(400).send({ error: 'Missing recipient or amount' });
-			const coinType = process.env.APTOS_USDC_COIN_TYPE;
-			if (!coinType) return reply.code(500).send({ error: 'APTOS_USDC_COIN_TYPE not set' });
-			const decimals = Number(process.env.APTOS_USDC_DECIMALS || '6');
-			const units = BigInt(Math.round(Number(amount) * Math.pow(10, decimals)));
-			const data = {
-				function: '0x1::coin::transfer',
-				typeArguments: [coinType],
-				functionArguments: [recipient, units.toString()]
-			};
-			return { data };
-		} catch (e) {
-			return reply.code(500).send({ error: e.message || String(e) });
-		}
-	});
-
-	// Aptos: confirm payment by tx hash and activate subscription if valid
-	app.post('/api/payments/aptos/confirm', async (req, reply) => {
-		try {
-			if (!Aptos) return reply.code(500).send({ error: 'Aptos SDK not installed' });
-			const { orderId, txHash } = req.body || {};
-			if (!orderId || !txHash) return reply.code(400).send({ error: 'orderId and txHash required' });
-			const nodeUrl = process.env.APTOS_NODE_URL || 'https://fullnode.mainnet.aptoslabs.com/v1';
-			const client = new Aptos.Aptos(new Aptos.AptosConfig({ fullnode: nodeUrl }));
-			const tx = await client.getTransactionByHash({ transactionHash: txHash }).catch(() => null);
-			if (!tx || tx.type !== 'user_transaction' || !tx.success) return reply.code(400).send({ error: 'Transaction not found or failed' });
-			const payload = tx.payload;
-			if (!payload || payload.type !== 'entry_function_payload') return reply.code(400).send({ error: 'Unexpected payload' });
-			const fn = payload.function;
-			if (fn !== '0x1::coin::transfer') return reply.code(400).send({ error: 'Not a coin transfer' });
-			const coinType = process.env.APTOS_USDC_COIN_TYPE;
-			if (!Array.isArray(payload.type_arguments) || payload.type_arguments[0] !== coinType) return reply.code(400).send({ error: 'Wrong coin type' });
-			const args = payload.arguments || [];
-			const toArg = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].hex ? args[0].hex : '');
-			const amtArg = BigInt(String(args[1] || '0'));
-			const expectedRecipient = (process.env.APTOS_MERCHANT_ADDRESS || '').toLowerCase();
-			if (!expectedRecipient) return reply.code(500).send({ error: 'APTOS_MERCHANT_ADDRESS not set' });
-			if (toArg.toLowerCase() !== expectedRecipient) return reply.code(400).send({ error: 'Wrong recipient' });
-			// Load order and validate expected amount
-			const store = loadOrders();
-			const order = store.orders.find(o => o.orderId === orderId);
-			if (!order) return reply.code(404).send({ error: 'Order not found' });
-			const decimals = Number(process.env.APTOS_USDC_DECIMALS || '6');
-			const expectedUnits = BigInt(Math.round(Number(order.amount) * Math.pow(10, decimals)));
-			if (amtArg !== expectedUnits) return reply.code(400).send({ error: 'Wrong amount' });
-
-			// Mark paid and extend subscription
-			if (order.status !== 'paid') {
-				order.status = 'paid';
-				order.paidAt = Date.now();
-				saveOrders(store);
-				const subStore = loadSubscribers();
-				const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
-				const now = Date.now();
-				const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-				if (idx >= 0) {
-					const current = subStore.subscribers[idx];
-					const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
-					const newExpires = base + durationMs;
-					current.isSubscribed = true;
-					current.expiresAt = newExpires;
-					current.language = order.language || current.language;
-					current.updatedAt = now;
-				} else {
-					const expiresAt = now + durationMs;
-					subStore.subscribers.push({ email: order.email, language: order.language, isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
-				}
-				saveSubscribers(subStore);
-			}
-			return { ok: true };
-		} catch (e) {
-			return reply.code(500).send({ error: e.message || String(e) });
-		}
-	});
 
 	// Simple JSON store for orders
 	const dataDir = path.join(__dirname, 'data');
@@ -220,9 +137,11 @@ async function main() {
 	// Daily sentence (DeepSeek-backed)
 	app.get('/api/daily-sentence', async (req, reply) => {
 		try {
-			const source = (req.query.source || process.env.SOURCE_LANGUAGE || 'english').toString();
-			const target = (req.query.target || process.env.TARGET_LANGUAGE || 'japanese').toString();
-			const result = await generateSentence(source, target);
+			const qTarget = (req.query.target || process.env.TARGET_LANGUAGE || 'japanese').toString();
+			const target = qTarget;
+			const source = (req.query.source || (target === 'english' ? 'japanese' : 'english') || process.env.SOURCE_LANGUAGE || 'english').toString();
+			const level = (req.query.level || 'N3').toString();
+			const result = await generateSentence(source, target, level);
 			const text = [
 				result.kanji ? `漢字: ${result.kanji}` : null,
 				result.hiragana ? `ひらがな: ${result.hiragana}` : null,
@@ -306,7 +225,7 @@ async function main() {
 	// Create a new order and server-generated reference
 	app.post('/api/subscribe/start', async (req, reply) => {
 		try {
-			const { email, plan, language } = req.body || {};
+			const { email, plan, language, level, native } = req.body || {};
 			const normEmail = normalizeEmail(email);
 			if (!isValidEmail(normEmail)) return reply.code(400).send({ error: 'valid email required' });
 			const planKey = (plan || 'month').toString();
@@ -315,7 +234,7 @@ async function main() {
 			const ref = Keypair.generate().publicKey.toBase58();
 			const orderId = 'ord_' + Math.random().toString(36).slice(2, 10);
 			const store = loadOrders();
-			store.orders.push({ orderId, reference: ref, status: 'pending', createdAt: Date.now(), email: normEmail, plan: planKey, amount: PLANS[planKey], language: (language || process.env.TARGET_LANGUAGE || 'japanese').toString() });
+			store.orders.push({ orderId, reference: ref, status: 'pending', createdAt: Date.now(), email: normEmail, plan: planKey, amount: PLANS[planKey], language: (language || process.env.TARGET_LANGUAGE || 'japanese').toString(), level: (level || 'N3').toString(), native: (native || '').toString() });
 			saveOrders(store);
 			return { orderId, reference: ref, amount: PLANS[planKey] };
 		} catch (e) {
@@ -366,10 +285,12 @@ async function main() {
 						current.isSubscribed = true;
 						current.expiresAt = newExpires;
 						current.language = order.language || current.language;
+						current.native = order.native || current.native;
+						current.level = order.level || current.level || 'N3';
 						current.updatedAt = now;
 					} else {
 						const expiresAt = now + durationMs;
-						subStore.subscribers.push({ email: order.email, language: order.language, isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
+						subStore.subscribers.push({ email: order.email, language: order.language, native: order.native || '', level: order.level || 'N3', isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
 					}
 					saveSubscribers(subStore);
 					updated = true;

@@ -26,10 +26,16 @@ function loadSubscribers() {
     // Filter out expired subscriptions
     const now = Date.now();
     const valid = active.filter(s => !s.expiresAt || s.expiresAt > now);
-    const grouped = valid.reduce((acc, s) => { (acc[s.language] ||= []).push(s); return acc; }, {});
+    const grouped = valid.reduce((acc, s) => {
+        const lang = s.language || 'japanese';
+        const lvl = s.level || 'N3';
+        const key = lang + '|' + lvl;
+        (acc[key] ||= { language: lang, level: lvl, users: [] }).users.push(s);
+        return acc;
+    }, {});
     let sent = 0;
-    for (const [language, users] of Object.entries(grouped)) {
-        const sentence = await generateSentence(source, language);
+    for (const { language, level, users } of Object.values(grouped)) {
+        const sentence = await generateSentence(source, language, level);
         const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 65687 : 65685));
         const subject = `${language === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
         for (const u of users) {

@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "npm run build && node server.js",
     "send:daily": "node scripts/sendDaily.js",
     "test:mail": "node scripts/testEmail.js",
+    "build": "npm --prefix react-ui install --no-fund --no-audit && npm --prefix react-ui run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,7 +14,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aptos-labs/ts-sdk": "^1.39.0",
     "@aws-sdk/client-ses": "^3.645.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/static": "^8.2.0",
@@ -21,5 +21,6 @@
     "dotenv": "^16.4.5",
     "fastify": "^5.5.0",
     "node-fetch": "^3.3.2"
-  }
+  },
+  "devDependencies": {}
 }
