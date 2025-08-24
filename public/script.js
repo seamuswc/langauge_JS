@@ -152,15 +152,27 @@
 				if (!email) { alert('Enter email'); return; }
 				let start;
 				try { start = await startOrder(email, language, plan); } catch (e) { alert(e.message); return; }
-				// Simple Aptos Pay URL (Pontem supports deep links; placeholder format)
-				const aptosUrl = `aptos:${CONFIG.aptosRecipient}?amount=${encodeURIComponent(String(start.amount))}&token=USDC&reference=${encodeURIComponent(start.reference)}`;
+				// Ask server for Aptos payload
+				try {
+					const r = await fetch('/tx/aptos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient: CONFIG.aptosRecipient, amount: start.amount }) });
+					if (!r.ok) { alert('Failed to build Aptos txn'); return; }
+					const { data } = await r.json();
+					const aptos = window.aptos;
+					if (!aptos || typeof aptos.signAndSubmitTransaction !== 'function') {
+						alert('Aptos wallet not detected (Pontem/Petra). Install and try again.');
+						return;
+					}
+					const resp = await aptos.signAndSubmitTransaction({ data });
+					await fetch('/api/payments/aptos/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: start.orderId, txHash: resp.hash || resp.transactionHash || resp.hashHex }) });
+					alert('Payment submitted! Subscription will be activated shortly.');
+				} catch (err) {
+					alert('Aptos payment failed: ' + (err && err.message ? err.message : String(err)));
+				}
 				const qrEl = document.getElementById("qr");
 				qrEl.style.display = '';
 				document.getElementById('ref-line').style.display = '';
 				document.getElementById('ref-text').textContent = start.reference;
-				renderQr(qrEl, aptosUrl);
-				// Optionally try opening Pontem if available
-				try { window.location.href = aptosUrl; } catch (_) {}
+				try { const url = `aptos:${CONFIG.aptosRecipient}`; renderQr(qrEl, url); } catch (_) {}
 			});
 		}
 
