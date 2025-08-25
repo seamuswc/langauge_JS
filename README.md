@@ -30,7 +30,9 @@ sudo mkdir -p /var/www/nihongo-email
 # If running as root, chown is unnecessary. If using a non-root user, run:
 # sudo chown "$USER":"$USER" /var/www/nihongo-email
 cd /var/www/nihongo-email
-git clone <your_repo_url> .
+git clone git@github.com:seamuswc/langauge_JS.git .
+# or:
+# git clone https://github.com/seamuswc/langauge_JS.git .
 ```
 
 ### 4) Environment
