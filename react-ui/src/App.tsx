@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import * as solanaWeb3 from '@solana/web3.js';
 
@@ -32,18 +32,21 @@ function App() {
   }, [level, targetLang, native]);
 
   // Reset default level when language changes
+  // Run language auto-detection only once on first load
+  const initialLangSet = useRef(false);
   useEffect(() => {
-    // On first load, infer preferred target language from browser
+    if (initialLangSet.current) return;
+    initialLangSet.current = true;
     try {
       const langs = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) as string[];
       const primary = (langs && langs[0] ? String(langs[0]) : '').toLowerCase();
-      if (primary.startsWith('ja')) {
-        setLanguage('english'); // For Japanese browser users, learn English
-      } else if (primary.startsWith('en')) {
-        setLanguage('japanese'); // For English browser users, learn Japanese
-      }
+      if (primary.startsWith('ja')) setLanguage('english');
+      else if (primary.startsWith('en')) setLanguage('japanese');
     } catch {}
+  }, []);
 
+  // Adjust default level whenever target language group changes
+  useEffect(() => {
     if (isEnglish) setLevel('B1');
     else if (isThai) setLevel('Intermediate');
     else setLevel('N3');
@@ -55,6 +58,13 @@ function App() {
     setReference('');
     setPayUrl('');
   }, [plan]);
+
+  // If user changes email/language/level, also clear prior QR and re-enable
+  useEffect(() => {
+    setPaid(false);
+    setReference('');
+    setPayUrl('');
+  }, [email, language, level]);
 
   const detectPhantom = () => {
     // @ts-ignore

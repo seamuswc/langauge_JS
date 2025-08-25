@@ -39,7 +39,7 @@ Create a `.env` file in the project root with your keys and settings.
 ### 5) Install and build
 Run from: `/var/www/nihongo-email`
 ```bash
-npm install
+npm ci || npm install
 npm run build
 ```
 
@@ -89,6 +89,18 @@ pm2 startup   # run the printed command once
 curl -s http://127.0.0.1:8787/health   # {"ok": true}
 pm2 status && pm2 logs daily-sentence --lines 50
 ```
+
+###pull, run, restart
+cd /var/www/nihongo-email \
+&& git pull \
+&& (npm ci || npm install) \
+&& npm run build \
+&& pm2 reload daily-sentence
+
+### Email (Tencent Cloud SES)
+- Uses Tencent SDK (`tencentcloud-sdk-nodejs`) with service SES v2020-10-02.
+- Required env: `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`, `TENCENT_SES_REGION` (e.g., ap-hongkong), `TENCENT_SES_SENDER` (verified).
+- After pulling changes that modify server deps: run `npm ci` (or `npm install`) at project root.
 
 Notes: App writes JSON to `data/`. Keep 8787 private (127.0.0.1) and expose only 80/443 via Nginx. Using `/var/www/nihongo-email` keeps web app files in the conventional web root. If you run as root, `chown $USER:$USER` is not required.
 
