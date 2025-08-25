@@ -91,11 +91,13 @@ pm2 status && pm2 logs daily-sentence --lines 50
 ```
 
 ###pull, run, restart
-cd /var/www/nihongo-email \
-&& git pull \
-&& (npm ci || npm install) \
-&& npm run build \
-&& pm2 reload daily-sentence
+cd /var/www/nihongo-email
+git restore --staged package-lock.json 2>/dev/null || true
+git restore package-lock.json            # or: git checkout -- package-lock.json
+git pull
+npm ci || npm install
+npm run build
+pm2 reload daily-sentence
 
 ### Email (Tencent Cloud SES)
 - Uses Tencent SDK (`tencentcloud-sdk-nodejs`) with service SES v2020-10-02.
