@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { QRCodeCanvas } from 'qrcode.react';
 import * as solanaWeb3 from '@solana/web3.js';
 
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -20,10 +19,18 @@ function App() {
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [paid, setPaid] = useState<boolean>(false);
-  const [qrSize, setQrSize] = useState<number>(280);
+  // QR removed; keep noop state removed
+  const [suiConfig, setSuiConfig] = useState<{ merchant: string; usdcCoinType: string } | null>(null);
+  const [suiFlowActive, setSuiFlowActive] = useState<boolean>(false);
+  const [suiReference, setSuiReference] = useState<string>('');
+  const [suiTxDigest, setSuiTxDigest] = useState<string>('');
+  const [suiVerifying, setSuiVerifying] = useState<boolean>(false);
 
   useEffect(() => {
-    fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ if (cfg?.recipient) setRecipient(cfg.recipient); });
+    fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ 
+      if (cfg?.recipient) setRecipient(cfg.recipient);
+      if (cfg?.sui) setSuiConfig({ merchant: cfg.sui.merchant || '', usdcCoinType: cfg.sui.usdcCoinType || '' });
+    });
     setSentenceLoading(true);
     fetch('/api/daily-sentence?level=' + encodeURIComponent(level) + '&target=' + encodeURIComponent(targetLang) + '&source=' + encodeURIComponent(native))
       .then(r=>r.ok?r.json():null)
@@ -53,21 +60,7 @@ function App() {
     else setLevel('N3');
   }, [isEnglish, isThai]);
 
-  // Responsive QR size (bigger on mobile viewport)
-  useEffect(() => {
-    const updateSize = () => {
-      const w = window.innerWidth || 0;
-      if (w <= 480) {
-        const s = Math.max(200, Math.floor(w * 0.8));
-        setQrSize(s);
-      } else {
-        setQrSize(280);
-      }
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
+  // (QR deep link only)
 
   // If user changes plan, clear any existing QR and re-enable subscribe
   useEffect(() => {
@@ -82,6 +75,13 @@ function App() {
     setReference('');
     setPayUrl('');
   }, [email, language, level]);
+
+  // Clear Sui flow state when details change
+  useEffect(() => {
+    setSuiFlowActive(false);
+    setSuiReference('');
+    setSuiTxDigest('');
+  }, [email, language, level, plan]);
 
   const detectPhantom = () => {
     // @ts-ignore
@@ -119,14 +119,8 @@ function App() {
         const tx = solanaWeb3.Transaction.from(txBuffer);
         await provider.signAndSendTransaction(tx);
       } else {
-        // Mobile fallback: open deep link in wallet
-        try {
-          const ua = String(navigator.userAgent || '').toLowerCase();
-          const isMobile = /iphone|ipad|ipod|android|mobile/.test(ua);
-          if (isMobile && url) {
-            window.location.href = url;
-          }
-        } catch {}
+        // Fallback: deep link to any registered Solana wallet (desktop or mobile)
+        try { if (url) window.location.href = url; } catch {}
       }
 
       // Poll status
@@ -150,6 +144,41 @@ function App() {
       })();
 
     } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
+  };
+
+  const onSubscribeSui = async () => {
+    if (!email) { alert('Enter email'); return; }
+    if (!suiConfig || !suiConfig.merchant || !suiConfig.usdcCoinType) { alert('Sui not configured.'); return; }
+    setPaid(false);
+    setLoading(true);
+    try {
+      const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
+      if (!start?.reference) throw new Error(start?.error||'Failed to start');
+      setSuiReference(start.reference);
+      setSuiFlowActive(true);
+      // Show instructions section for user to send USDC on Sui and paste tx digest
+    } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
+  };
+
+  const verifySuiPayment = async () => {
+    if (!suiReference || !suiTxDigest) { alert('Enter Sui transaction digest'); return; }
+    setSuiVerifying(true);
+    try {
+      const resp = await fetch('/api/sui/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txDigest: suiTxDigest.trim(), reference: suiReference }) });
+      const j = await resp.json().catch(()=>({}));
+      if (!resp.ok) throw new Error(j?.error || 'Verification failed');
+      if (j && j.paid) {
+        setPaid(true);
+        setSuiFlowActive(false);
+        setSuiReference('');
+        setSuiTxDigest('');
+        alert('Payment confirmed! Subscription activated.');
+      } else {
+        alert('Not paid yet. Please check the digest and try again.');
+      }
+    } catch(e:any) {
+      alert(e?.message||String(e));
+    } finally { setSuiVerifying(false); }
   };
 
   const stripWordClassInBreakdown = (value?: string): string | undefined => {
@@ -191,15 +220,15 @@ function App() {
     <div style={{maxWidth:560, margin:'3vh auto', padding:24, textAlign:'center'}}>
       <h1 style={{textAlign:'center'}}>Subscribe for Daily Sentences</h1>
       <div className="stack" style={{margin:'12px 0 16px'}}>
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@example.com' style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}/>
-        <select value={language} onChange={e=>setLanguage(e.target.value as any)} style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@example.com' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}/>
+        <select value={language} onChange={e=>setLanguage(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
           <option value='japanese'>Japanese</option>
           <option value='english'>英語</option>
           <option value='thai_en'>Thai</option>
           <option value='thai_ja'>タイ</option>
         </select>
         {isEnglish ? (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
             <option value='A1'>A1</option>
             <option value='A2'>A2</option>
             <option value='B1'>B1</option>
@@ -208,13 +237,13 @@ function App() {
             <option value='C2'>C2</option>
           </select>
         ) : isThai ? (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
             <option value='Beginner'>Beginner</option>
             <option value='Intermediate'>Intermediate</option>
             <option value='Advanced'>Advanced</option>
           </select>
         ) : (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
             <option value='N5'>JLPT N5</option>
             <option value='N4'>JLPT N4</option>
             <option value='N3'>JLPT N3</option>
@@ -222,22 +251,42 @@ function App() {
             <option value='N1'>JLPT N1</option>
           </select>
         )}
-        <select value={plan} onChange={e=>setPlan(e.target.value as any)} style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}>
+        <select value={plan} onChange={e=>setPlan(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
           <option value='month'>1 month — 2 USDC</option>
           <option value='year'>1 year — 12 USDC</option>
         </select>
       </div>
-      <div style={{textAlign:'center', marginBottom:16}}>
-        <button onClick={onSubscribeSolana} disabled={loading || paid} style={{padding:'12px 18px', fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
+      <div style={{display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:16}}>
+        <button onClick={onSubscribeSolana} disabled={loading || paid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
           {paid ? 'Subscribed' : (loading? 'Opening wallet…' : 'Subscribe with Solana')}
+        </button>
+        <button onClick={onSubscribeSui} disabled={loading || paid || !suiConfig || !suiConfig.merchant} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)', boxShadow:'0 10px 20px rgba(6,182,212,0.35)'}}>
+          {paid ? 'Subscribed' : 'Subscribe with Sui'}
         </button>
       </div>
       {reference && payUrl && (
-        <div style={{textAlign:'center'}}>
-          <div style={{margin:'18px auto 8px', padding:16, background:'#fff', borderRadius:12, width:'max-content'}}>
-            <QRCodeCanvas value={payUrl} size={qrSize} level='M' includeMargin={false}/>
+        <div style={{textAlign:'center', margin:'10px 0'}}>
+          <a href={payUrl} style={{display:'inline-block', padding:'10px 14px', borderRadius:8, background:'#222', color:'#fff', textDecoration:'none'}}>Open payment in wallet</a>
+          <div style={{marginTop:8, fontSize:12, opacity:0.8}}>If it doesn’t open, copy this link into your wallet: <span style={{fontFamily:'monospace', wordBreak:'break-all'}}>{payUrl}</span></div>
+        </div>
+      )}
+
+      {suiFlowActive && suiConfig && (
+        <div style={{textAlign:'center', margin:'12px auto', maxWidth:560}}>
+          <div style={{marginBottom:8}}>
+            <div style={{opacity:0.85}}>Send</div>
+            <div style={{fontWeight:700}}> {plan === 'year' ? '12' : '2'} USDC (Sui mainnet) </div>
+            <div style={{opacity:0.85, marginTop:6}}>to</div>
+            <div style={{fontFamily:'monospace', wordBreak:'break-all'}}>{suiConfig.merchant}</div>
           </div>
-          <div style={{fontFamily:'monospace', fontSize:13, wordBreak:'break-all'}}>Reference: {reference}</div>
+          <div style={{marginTop:12}}>
+            <input value={suiTxDigest} onChange={e=>setSuiTxDigest(e.target.value)} placeholder='Paste Sui transaction digest' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee', width:'100%', maxWidth:420}}/>
+          </div>
+          <div style={{marginTop:10}}>
+            <button onClick={verifySuiPayment} disabled={suiVerifying} style={{padding:'10px 16px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)'}}>
+              {suiVerifying ? 'Verifying…' : 'Verify payment'}
+            </button>
+          </div>
         </div>
       )}
       <hr style={{margin:'16px 0'}}/>

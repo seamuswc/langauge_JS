@@ -19,6 +19,8 @@ const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
+const SUI_RPC_URL = process.env.SUI_RPC_URL || 'https://fullnode.mainnet.sui.io';
+
 function ata(owner, mint) {
 	return PublicKey.findProgramAddressSync(
 		[owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
@@ -93,7 +95,11 @@ async function main() {
 	app.get('/api/config', async () => ({
 		recipient: process.env.SOLANA_MERCHANT_ADDRESS || DEFAULT_RECIPIENT,
 		usdcMint: USDC_MINT.toBase58(),
-		defaultAmount: 2
+		defaultAmount: 2,
+		sui: {
+			merchant: process.env.SUI_MERCHANT_ADDRESS || '',
+			usdcCoinType: process.env.SUI_USDC_COIN_TYPE || ''
+		}
 	}));
 
 
@@ -252,6 +258,99 @@ async function main() {
 			return { transaction: txb64 };
 		} catch (e) {
 			req.log.error(e);
+			return reply.code(500).send({ error: e.message || String(e) });
+		}
+	});
+
+	// Verify Sui payment by tx digest, coin type, and merchant address
+	app.post('/api/sui/verify', async (req, reply) => {
+		try {
+			const { txDigest, reference } = req.body || {};
+			const merchant = (process.env.SUI_MERCHANT_ADDRESS || '').trim();
+			const coinType = (process.env.SUI_USDC_COIN_TYPE || '').trim();
+			if (!txDigest || typeof txDigest !== 'string') return reply.code(400).send({ error: 'txDigest required' });
+			if (!reference || typeof reference !== 'string') return reply.code(400).send({ error: 'reference required' });
+			if (!merchant || !coinType) return reply.code(500).send({ error: 'Sui not configured' });
+
+			async function suiRpc(method, params) {
+				const res = await fetch(SUI_RPC_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ jsonrpc: '2.0', id: '1', method, params })
+				});
+				if (!res.ok) throw new Error('Sui RPC error ' + res.status);
+				const j = await res.json();
+				if (j.error) throw new Error('Sui RPC: ' + (j.error.message || 'unknown'));
+				return j.result;
+			}
+
+			// Fetch tx with balance changes
+			const result = await suiRpc('sui_getTransactionBlock', [
+				txDigest,
+				{ showBalanceChanges: true, showEffects: true, showInput: false, showRawInput: false, showEvents: false, showObjectChanges: false }
+			]);
+			const changes = (result && result.balanceChanges) || [];
+			// Sum all positive balance changes for merchant in given coin type
+			let receivedUnits = 0n;
+			for (const c of changes) {
+				try {
+					if (c.coinType !== coinType) continue;
+					const ownerAddr = (c.owner && (c.owner.AddressOwner || c.owner.ObjectOwner || c.owner.Shared || '')) || '';
+					if (String(ownerAddr).toLowerCase() !== merchant.toLowerCase()) continue;
+					const delta = BigInt(c.amount || '0');
+					if (delta > 0n) receivedUnits += delta;
+				} catch {}
+			}
+
+			// Find the pending order by reference and required amount (6 decimals)
+			const store = loadOrders();
+			const order = store.orders.find(o => o.reference === reference);
+			if (!order) return reply.code(404).send({ error: 'order not found' });
+			if (order.status === 'paid') return { ok: true, paid: true };
+			const requiredUnits = BigInt(Math.round(Number(order.amount) * 1_000_000));
+			const paid = receivedUnits >= requiredUnits;
+			if (!paid) return { ok: true, paid: false };
+
+			// Mark paid, extend subscription, and send today’s email
+			order.status = 'paid';
+			order.paidAt = Date.now();
+			saveOrders(store);
+			const subStore = loadSubscribers();
+			const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+			const now = Date.now();
+			const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+			if (idx >= 0) {
+				const current = subStore.subscribers[idx];
+				const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
+				const newExpires = base + durationMs;
+				current.isSubscribed = true;
+				current.expiresAt = newExpires;
+				current.language = order.language || current.language;
+				current.native = order.native || current.native;
+				current.level = order.level || current.level || 'N3';
+				current.updatedAt = now;
+			} else {
+				const expiresAt = now + durationMs;
+				subStore.subscribers.push({ email: order.email, language: order.language, native: order.native || '', level: order.level || 'N3', isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
+			}
+			saveSubscribers(subStore);
+
+			// Send normal daily email now
+			try {
+				const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+				const source = process.env.SOURCE_LANGUAGE || 'english';
+				const lang = (user && user.language) || order.language || 'japanese';
+				const lvl = (user && user.level) || order.level || 'N3';
+				const sentence = await generateSentence(source, lang, lvl);
+				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 65687 : 65685));
+				const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
+			} catch (e) {
+				req.log.error(e);
+			}
+
+			return { ok: true, paid: true };
+		} catch (e) {
 			return reply.code(500).send({ error: e.message || String(e) });
 		}
 	});
