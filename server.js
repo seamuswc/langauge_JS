@@ -294,6 +294,20 @@ async function main() {
 					}
 					saveSubscribers(subStore);
 					updated = true;
+
+					// Send the normal daily email immediately upon first payment confirmation
+					try {
+						const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+						const source = process.env.SOURCE_LANGUAGE || 'english';
+						const lang = (user && user.language) || order.language || 'japanese';
+						const lvl = (user && user.level) || order.level || 'N3';
+						const sentence = await generateSentence(source, lang, lvl);
+						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 65687 : 65685));
+						const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+						await sendEmailWithTemplate(order.email, templateId, sentence, subject);
+					} catch (e) {
+						req.log.error(e);
+					}
 				}
 			}
 			return { paid, signature: found ? found.signature : null, updated };

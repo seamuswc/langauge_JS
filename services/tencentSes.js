@@ -77,6 +77,32 @@ async function sendEmailWithTemplate(to, templateId, templateData, subject) {
     }
 }
 
-module.exports = { sendEmailWithTemplate };
+async function sendSimpleEmail(to, subject, html, text) {
+    const from = process.env.TENCENT_SES_SENDER;
+    if (!from) throw new Error('TENCENT_SES_SENDER not set');
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw new Error('Invalid recipient email');
+
+    const client = getSesClient();
+    const cmd = new SendEmailCommand({
+        Destination: { ToAddresses: [to] },
+        Source: from,
+        Message: {
+            Subject: { Data: subject || 'Notification' },
+            Body: {
+                Html: { Data: html || '' },
+                Text: { Data: text || '' }
+            }
+        }
+    });
+    try {
+        await client.send(cmd);
+        return true;
+    } catch (e) {
+        console.error('SES send failed', e);
+        return false;
+    }
+}
+
+module.exports = { sendEmailWithTemplate, sendSimpleEmail };
 
 

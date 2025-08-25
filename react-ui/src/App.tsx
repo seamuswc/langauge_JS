@@ -19,6 +19,7 @@ function App() {
   const [payUrl, setPayUrl] = useState<string>('');
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [paid, setPaid] = useState<boolean>(false);
 
   useEffect(() => {
     fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ if (cfg?.recipient) setRecipient(cfg.recipient); });
@@ -32,10 +33,28 @@ function App() {
 
   // Reset default level when language changes
   useEffect(() => {
+    // On first load, infer preferred target language from browser
+    try {
+      const langs = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) as string[];
+      const primary = (langs && langs[0] ? String(langs[0]) : '').toLowerCase();
+      if (primary.startsWith('ja')) {
+        setLanguage('english'); // For Japanese browser users, learn English
+      } else if (primary.startsWith('en')) {
+        setLanguage('japanese'); // For English browser users, learn Japanese
+      }
+    } catch {}
+
     if (isEnglish) setLevel('B1');
     else if (isThai) setLevel('Intermediate');
     else setLevel('N3');
   }, [isEnglish, isThai]);
+
+  // If user changes plan, clear any existing QR and re-enable subscribe
+  useEffect(() => {
+    setPaid(false);
+    setReference('');
+    setPayUrl('');
+  }, [plan]);
 
   const detectPhantom = () => {
     // @ts-ignore
@@ -51,6 +70,7 @@ function App() {
 
   const onSubscribeSolana = async () => {
     if (!email) { alert('Enter email'); return; }
+    setPaid(false);
     setLoading(true);
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
@@ -81,7 +101,14 @@ function App() {
             const r = await fetch('/api/payments/status?reference=' + encodeURIComponent(start.reference));
             if (!r.ok) continue;
             const j = await r.json();
-            if (j && j.paid) { alert('Payment confirmed! Subscription activated.'); return; }
+            if (j && j.paid) {
+              setPaid(true);
+              // Hide QR and clear reference to prevent reusing same payment link
+              setReference('');
+              setPayUrl('');
+              alert('Payment confirmed! Subscription activated.');
+              return;
+            }
           } catch {}
         }
       })();
@@ -165,8 +192,8 @@ function App() {
         </select>
       </div>
       <div style={{textAlign:'center', marginBottom:16}}>
-        <button onClick={onSubscribeSolana} disabled={loading} style={{padding:'12px 18px', fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
-          {loading? 'Opening wallet…' : 'Subscribe with Solana'}
+        <button onClick={onSubscribeSolana} disabled={loading || paid} style={{padding:'12px 18px', fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
+          {paid ? 'Subscribed' : (loading? 'Opening wallet…' : 'Subscribe with Solana')}
         </button>
       </div>
       {reference && payUrl && (
