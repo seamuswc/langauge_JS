@@ -20,6 +20,7 @@ function App() {
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [paid, setPaid] = useState<boolean>(false);
+  const [qrSize, setQrSize] = useState<number>(280);
 
   useEffect(() => {
     fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ if (cfg?.recipient) setRecipient(cfg.recipient); });
@@ -51,6 +52,22 @@ function App() {
     else if (isThai) setLevel('Intermediate');
     else setLevel('N3');
   }, [isEnglish, isThai]);
+
+  // Responsive QR size (bigger on mobile viewport)
+  useEffect(() => {
+    const updateSize = () => {
+      const w = window.innerWidth || 0;
+      if (w <= 480) {
+        const s = Math.max(200, Math.floor(w * 0.8));
+        setQrSize(s);
+      } else {
+        setQrSize(280);
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
 
   // If user changes plan, clear any existing QR and re-enable subscribe
   useEffect(() => {
@@ -101,6 +118,15 @@ function App() {
         const txBuffer = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
         const tx = solanaWeb3.Transaction.from(txBuffer);
         await provider.signAndSendTransaction(tx);
+      } else {
+        // Mobile fallback: open deep link in wallet
+        try {
+          const ua = String(navigator.userAgent || '').toLowerCase();
+          const isMobile = /iphone|ipad|ipod|android|mobile/.test(ua);
+          if (isMobile && url) {
+            window.location.href = url;
+          }
+        } catch {}
       }
 
       // Poll status
@@ -162,7 +188,7 @@ function App() {
   };
 
   return (
-    <div style={{maxWidth:560, margin:'6vh auto', padding:24, textAlign:'center'}}>
+    <div style={{maxWidth:560, margin:'3vh auto', padding:24, textAlign:'center'}}>
       <h1 style={{textAlign:'center'}}>Subscribe for Daily Sentences</h1>
       <div className="stack" style={{margin:'12px 0 16px'}}>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@example.com' style={{padding:8, borderRadius:8, border:'1px solid #333', background:'#111', color:'#eee'}}/>
@@ -209,7 +235,7 @@ function App() {
       {reference && payUrl && (
         <div style={{textAlign:'center'}}>
           <div style={{margin:'18px auto 8px', padding:16, background:'#fff', borderRadius:12, width:'max-content'}}>
-            <QRCodeCanvas value={payUrl} size={280} level='M' includeMargin={false}/>
+            <QRCodeCanvas value={payUrl} size={qrSize} level='M' includeMargin={false}/>
           </div>
           <div style={{fontFamily:'monospace', fontSize:13, wordBreak:'break-all'}}>Reference: {reference}</div>
         </div>
