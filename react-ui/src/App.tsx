@@ -8,11 +8,11 @@ function App() {
   const [sentenceLoading, setSentenceLoading] = useState<boolean>(true);
   const [reference, setReference] = useState<string>('');
   const [email, setEmail] = useState('');
-  const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'|'thai_ja'>('japanese');
+  const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'>('japanese');
   const [plan, setPlan] = useState<'month'|'year'>('month');
   const [level, setLevel] = useState<string>('N3');
-  const targetLang: 'japanese'|'english'|'thai' = language === 'thai_en' || language === 'thai_ja' ? 'thai' : (language === 'english' ? 'english' : 'japanese');
-  const native = language === 'english' ? 'japanese' : language === 'japanese' ? 'english' : (language === 'thai_en' ? 'english' : 'japanese');
+  const targetLang: 'japanese'|'english'|'thai' = language === 'thai_en' ? 'thai' : (language === 'english' ? 'english' : 'japanese');
+  const native = language === 'english' ? 'japanese' : language === 'japanese' ? 'english' : 'english';
   const isEnglish = targetLang === 'english';
   const isThai = targetLang === 'thai';
   const [payUrl, setPayUrl] = useState<string>('');
@@ -362,7 +362,6 @@ function App() {
           <option value='japanese'>Japanese</option>
           <option value='english'>英語</option>
           <option value='thai_en'>Thai</option>
-          <option value='thai_ja'>タイ</option>
         </select>
         {isEnglish ? (
           <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>

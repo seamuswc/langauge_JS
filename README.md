@@ -128,11 +128,7 @@ pm2 restart language-app
 The system uses different email templates for different languages:
 - **Japanese Template**: `TENCENT_SES_TEMPLATE_ID` (default: 65685) - for Japanese sentences
 - **English Template**: `TENCENT_SES_TEMPLATE_ID_EN` (default: 65687) - for English sentences  
-- **Thai Templates**: `TENCENT_SES_TEMPLATE_ID_TH` 
-  - **Template ID 66673**: For users with native language = Japanese (Japanese interface)
-  - **Template ID 66672**: For users with native language = English (English interface)
-
-The system automatically selects the correct Thai template based on the user's native language.
+- **Thai Template**: `TENCENT_SES_TEMPLATE_ID_TH` (default: 66672) - for Thai sentences (English interface)
 
 Template files are available in `email-templates/` directory for reference.
 
