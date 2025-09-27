@@ -83,16 +83,10 @@ function App() {
 
   // Clear Sui flow state when details change
   useEffect(() => {
-    setSuiFlowActive(false);
-    setSuiReference('');
-    setSuiTxDigest('');
   }, [email, language, level, plan]);
 
   // Clear Aptos flow state when details change
   useEffect(() => {
-    setAptosFlowActive(false);
-    setAptosReference('');
-    setAptosTxHash('');
   }, [email, language, level, plan]);
 
   const detectPhantom = () => {
@@ -198,7 +192,6 @@ function App() {
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
       if (!start?.reference) throw new Error(start?.error||'Failed to start');
-      setSuiReference(start.reference);
 
       // Try to auto-detect and use Sui wallet
       const suiProvider = detectSuiWallet();
@@ -268,7 +261,6 @@ function App() {
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
       if (!start?.reference) throw new Error(start?.error||'Failed to start');
-      setAptosReference(start.reference);
 
       // Try to auto-detect and use Aptos wallet
       const aptosProvider = detectAptosWallet();
