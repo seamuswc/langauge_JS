@@ -7,6 +7,7 @@
     "send:daily": "node scripts/sendDaily.js",
     "test:mail": "node scripts/testEmail.js",
     "build": "npm --prefix react-ui install --no-fund --no-audit && npm --prefix react-ui run build",
+    "deploy": "cd react-ui && npm run build && cd .. && pm2 restart language-app",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

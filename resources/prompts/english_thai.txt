@@ -12,13 +12,13 @@ Meaning: [english]
 Constraints:
 - Use natural Thai matching the specified level (Beginner/Intermediate/Advanced).
 - Prefer everyday, adult-relevant topics.
-- Word Breakdown: one item per line like "word (part of speech) (simple English gloss)".
-- Grammar: one item per line; only a single "Grammar:" heading.
+- Word Breakdown: one item per line like "word (pronunciation) (part of speech) (simple English gloss)".
+- Grammar: one item per line; no "Grammar:" prefix for each item.
 - No extra commentary or questions.
 
 Example:
 Thai: วันนี้อากาศดีมาก
 Reading: wan-níi aa-gàat dee mâak
-Word Breakdown: วันนี้ (noun) (today) + อากาศ (noun) (weather) + ดี (adjective) (good) + มาก (adverb) (very)
+Word Breakdown: วันนี้ (wan-níi) (noun) (today) + อากาศ (aa-gàat) (noun) (weather) + ดี (dee) (adjective) (good) + มาก (mâak) (adverb) (very)
 Grammar: Adjective + มาก = very + adjective
 Meaning: The weather is very nice today.

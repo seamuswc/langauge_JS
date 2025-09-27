@@ -43,6 +43,18 @@ npm ci || npm install
 npm run build
 ```
 
+### 6) Live Deployment with PM2
+
+For production deployments with hot reloading:
+
+```bash
+# Start with PM2 (auto-restart on file changes)
+pm2 start server.js --name "language-app" --watch
+
+# Deploy new code (rebuilds frontend and restarts)
+npm run deploy
+```
+
 ### 6) Nginx reverse proxy (HTTP)
 ```bash
 sudo tee /etc/nginx/sites-available/nihongo-email >/dev/null <<'NGINX'
