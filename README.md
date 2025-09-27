@@ -104,6 +104,43 @@ pm2 reload daily-sentence
 - Required env: `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`, `TENCENT_SES_REGION` (e.g., ap-hongkong), `TENCENT_SES_SENDER` (verified).
 - After pulling changes that modify server deps: run `npm ci` (or `npm install`) at project root.
 
+#### Email Templates
+The system uses different email templates for different languages:
+- **Japanese Template**: `TENCENT_SES_TEMPLATE_ID` (default: 65685) - for Japanese sentences
+- **English Template**: `TENCENT_SES_TEMPLATE_ID_EN` (default: 65687) - for English sentences  
+- **Thai Templates**: `TENCENT_SES_TEMPLATE_ID_TH` 
+  - **Template ID 66673**: For users with native language = Japanese (Japanese interface)
+  - **Template ID 66672**: For users with native language = English (English interface)
+
+The system automatically selects the correct Thai template based on the user's native language.
+
+Template files are available in `email-templates/` directory for reference.
+
+### Payment Configuration
+
+#### Solana Payments (Default - Works out of the box)
+- Uses default merchant address: `8zS5w8MHSDQ4Pc12DZRLYQ78hgEwnBemVJMrfjUN6xXj`
+- Optional env: `SOLANA_MERCHANT_ADDRESS`, `SOLANA_RPC_URL`
+- Integrates with Phantom wallet automatically
+
+#### Sui Payments (Optional - Requires configuration)
+To enable Sui payments, add these environment variables:
+```bash
+SUI_MERCHANT_ADDRESS=0x...  # Your Sui merchant address
+SUI_USDC_COIN_TYPE=0x...::usdc::USDC  # Sui USDC coin type
+SUI_RPC_URL=https://fullnode.mainnet.sui.io  # Optional, has default
+```
+
+#### Aptos Payments (Optional - Requires configuration)
+To enable Aptos payments, add these environment variables:
+```bash
+APTOS_MERCHANT_ADDRESS=0x...  # Your Aptos merchant address
+APTOS_USDC_COIN_TYPE=0x...::usdc::USDC  # Aptos USDC coin type
+APTOS_RPC_URL=https://fullnode.mainnet.aptoslabs.com  # Optional, has default
+```
+
+**Note**: Without Sui/Aptos configuration, the buttons will still work but show a "not configured" message. Users can still use Solana payments.
+
 Notes: App writes JSON to `data/`. Keep 8787 private (127.0.0.1) and expose only 80/443 via Nginx. Using `/var/www/nihongo-email` keeps web app files in the conventional web root. If you run as root, `chown $USER:$USER` is not required.
 
 

@@ -20,6 +20,7 @@ const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
 const SUI_RPC_URL = process.env.SUI_RPC_URL || 'https://fullnode.mainnet.sui.io';
+const APTOS_RPC_URL = process.env.APTOS_RPC_URL || 'https://fullnode.mainnet.aptoslabs.com';
 
 function ata(owner, mint) {
 	return PublicKey.findProgramAddressSync(
@@ -99,6 +100,10 @@ async function main() {
 		sui: {
 			merchant: process.env.SUI_MERCHANT_ADDRESS || '',
 			usdcCoinType: process.env.SUI_USDC_COIN_TYPE || ''
+		},
+		aptos: {
+			merchant: process.env.APTOS_MERCHANT_ADDRESS || '',
+			usdcCoinType: process.env.APTOS_USDC_COIN_TYPE || ''
 		}
 	}));
 
@@ -114,8 +119,20 @@ async function main() {
 	function writeFileAtomic(filePath, dataObj) {
 		const dir = path.dirname(filePath);
 		const tmp = path.join(dir, `.${path.basename(filePath)}.tmp`);
-		fs.writeFileSync(tmp, JSON.stringify(dataObj, null, 2));
-		fs.renameSync(tmp, filePath);
+		try {
+			fs.writeFileSync(tmp, JSON.stringify(dataObj, null, 2));
+			fs.renameSync(tmp, filePath);
+		} catch (error) {
+			// Clean up temp file if it exists
+			try {
+				if (fs.existsSync(tmp)) {
+					fs.unlinkSync(tmp);
+				}
+			} catch (cleanupError) {
+				console.error('Failed to cleanup temp file:', cleanupError);
+			}
+			throw error;
+		}
 	}
 
 	function loadOrders() {
@@ -214,10 +231,16 @@ async function main() {
 			let total = 0;
 			for (const [language, users] of Object.entries(byLang)) {
 				const sentence = await generateSentence(source, language);
-				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 65687 : 65685));
-				const subject = `${language === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+				const subject = `${language === 'english' ? '今日の英語' : language === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 				const templateData = sentence;
 				for (const u of users) {
+					// Choose template based on user's native language for Thai
+					let templateId;
+					if (language === 'thai') {
+						templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || (u.native === 'japanese' ? 66673 : 66672));
+					} else {
+						templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 65687 : 65685));
+					}
 					const ok = await sendEmailWithTemplate(u.email, templateId, templateData, subject);
 					if (ok) total += 1;
 				}
@@ -270,18 +293,26 @@ async function main() {
 			const coinType = (process.env.SUI_USDC_COIN_TYPE || '').trim();
 			if (!txDigest || typeof txDigest !== 'string') return reply.code(400).send({ error: 'txDigest required' });
 			if (!reference || typeof reference !== 'string') return reply.code(400).send({ error: 'reference required' });
-			if (!merchant || !coinType) return reply.code(500).send({ error: 'Sui not configured' });
+			if (!merchant || !coinType) {
+				req.log.warn('Sui verification attempted but not configured', { merchant: !!merchant, coinType: !!coinType });
+				return reply.code(503).send({ error: 'Sui payment verification is not configured. Please contact support.' });
+			}
 
 			async function suiRpc(method, params) {
-				const res = await fetch(SUI_RPC_URL, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ jsonrpc: '2.0', id: '1', method, params })
-				});
-				if (!res.ok) throw new Error('Sui RPC error ' + res.status);
-				const j = await res.json();
-				if (j.error) throw new Error('Sui RPC: ' + (j.error.message || 'unknown'));
-				return j.result;
+				try {
+					const res = await fetch(SUI_RPC_URL, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ jsonrpc: '2.0', id: '1', method, params })
+					});
+					if (!res.ok) throw new Error('Sui RPC error ' + res.status);
+					const j = await res.json();
+					if (j.error) throw new Error('Sui RPC: ' + (j.error.message || 'unknown'));
+					return j.result;
+				} catch (error) {
+					req.log.error('Sui RPC call failed:', error);
+					throw new Error('Unable to verify Sui transaction. Please try again later.');
+				}
 			}
 
 			// Fetch tx with balance changes
@@ -289,6 +320,11 @@ async function main() {
 				txDigest,
 				{ showBalanceChanges: true, showEffects: true, showInput: false, showRawInput: false, showEvents: false, showObjectChanges: false }
 			]);
+			
+			if (!result) {
+				return reply.code(404).send({ error: 'Transaction not found. Please check the transaction digest.' });
+			}
+			
 			const changes = (result && result.balanceChanges) || [];
 			// Sum all positive balance changes for merchant in given coin type
 			let receivedUnits = 0n;
@@ -299,7 +335,9 @@ async function main() {
 					if (String(ownerAddr).toLowerCase() !== merchant.toLowerCase()) continue;
 					const delta = BigInt(c.amount || '0');
 					if (delta > 0n) receivedUnits += delta;
-				} catch {}
+				} catch (error) {
+					req.log.warn('Error processing balance change:', error);
+				}
 			}
 
 			// Find the pending order by reference and required amount (6 decimals)
@@ -342,8 +380,8 @@ async function main() {
 				const lang = (user && user.language) || order.language || 'japanese';
 				const lvl = (user && user.level) || order.level || 'N3';
 				const sentence = await generateSentence(source, lang, lvl);
-				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 65687 : 65685));
-				const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 65687 : lang === 'thai' ? (user && user.native === 'japanese' ? 66673 : 66672) : 65685));
+				const subject = `${lang === 'english' ? '今日の英語' : lang === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 			} catch (e) {
 				req.log.error(e);
@@ -360,10 +398,17 @@ async function main() {
 		try {
 			const reference = req.query.reference;
 			if (!reference) return reply.code(400).send({ error: 'reference required' });
-			const connection = new Connection(RPC_URL, { commitment: 'confirmed' });
-			const sigs = await connection.getSignaturesForAddress(new PublicKey(reference), { limit: 1 });
-			const found = sigs && sigs.length > 0 ? sigs[0] : null;
-			const paid = !!found;
+			
+			let connection, sigs, found, paid;
+			try {
+				connection = new Connection(RPC_URL, { commitment: 'confirmed' });
+				sigs = await connection.getSignaturesForAddress(new PublicKey(reference), { limit: 1 });
+				found = sigs && sigs.length > 0 ? sigs[0] : null;
+				paid = !!found;
+			} catch (solanaError) {
+				req.log.error('Solana RPC error:', solanaError);
+				return reply.code(500).send({ error: 'Unable to check payment status. Please try again later.' });
+			}
 
 			let updated = false;
 			if (paid) {
@@ -410,6 +455,122 @@ async function main() {
 				}
 			}
 			return { paid, signature: found ? found.signature : null, updated };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message || String(e) });
+		}
+	});
+
+	// Verify Aptos payment by tx hash, coin type, and merchant address
+	app.post('/api/aptos/verify', async (req, reply) => {
+		try {
+			const { txHash, reference } = req.body || {};
+			const merchant = (process.env.APTOS_MERCHANT_ADDRESS || '').trim();
+			const coinType = (process.env.APTOS_USDC_COIN_TYPE || '').trim();
+			if (!txHash || typeof txHash !== 'string') return reply.code(400).send({ error: 'txHash required' });
+			if (!reference || typeof reference !== 'string') return reply.code(400).send({ error: 'reference required' });
+			if (!merchant || !coinType) {
+				req.log.warn('Aptos verification attempted but not configured', { merchant: !!merchant, coinType: !!coinType });
+				return reply.code(503).send({ error: 'Aptos payment verification is not configured. Please contact support.' });
+			}
+
+			async function aptosRpc(method, params) {
+				try {
+					const res = await fetch(APTOS_RPC_URL, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ jsonrpc: '2.0', id: '1', method, params })
+					});
+					if (!res.ok) throw new Error('Aptos RPC error ' + res.status);
+					const j = await res.json();
+					if (j.error) throw new Error('Aptos RPC: ' + (j.error.message || 'unknown'));
+					return j.result;
+				} catch (error) {
+					req.log.error('Aptos RPC call failed:', error);
+					throw new Error('Unable to verify Aptos transaction. Please try again later.');
+				}
+			}
+
+			// Fetch transaction details
+			const result = await aptosRpc('get_transaction', [txHash]);
+			
+			if (!result) {
+				return reply.code(404).send({ error: 'Transaction not found. Please check the transaction hash.' });
+			}
+			
+			// Check if transaction is successful
+			if (result.success !== true) {
+				return reply.code(400).send({ error: 'Transaction failed or is not successful.' });
+			}
+
+			// Parse transaction events to find USDC transfers to merchant
+			const events = result.events || [];
+			let receivedUnits = 0n;
+			
+			for (const event of events) {
+				try {
+					// Look for coin transfer events
+					if (event.type === '0x1::coin::CoinWithdraw' || event.type === '0x1::coin::CoinDeposit') {
+						const data = event.data || {};
+						const recipient = data.account || data.deposit_address;
+						const amount = data.amount;
+						
+						if (recipient && amount && String(recipient).toLowerCase() === merchant.toLowerCase()) {
+							receivedUnits += BigInt(amount || '0');
+						}
+					}
+				} catch (error) {
+					req.log.warn('Error processing Aptos event:', error);
+				}
+			}
+
+			// Find the pending order by reference and required amount (6 decimals)
+			const store = loadOrders();
+			const order = store.orders.find(o => o.reference === reference);
+			if (!order) return reply.code(404).send({ error: 'order not found' });
+			if (order.status === 'paid') return { ok: true, paid: true };
+			const requiredUnits = BigInt(Math.round(Number(order.amount) * 1_000_000));
+			const paid = receivedUnits >= requiredUnits;
+			if (!paid) return { ok: true, paid: false };
+
+			// Mark paid, extend subscription, and send today's email
+			order.status = 'paid';
+			order.paidAt = Date.now();
+			saveOrders(store);
+			const subStore = loadSubscribers();
+			const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+			const now = Date.now();
+			const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+			if (idx >= 0) {
+				const current = subStore.subscribers[idx];
+				const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
+				const newExpires = base + durationMs;
+				current.isSubscribed = true;
+				current.expiresAt = newExpires;
+				current.language = order.language || current.language;
+				current.native = order.native || current.native;
+				current.level = order.level || current.level || 'N3';
+				current.updatedAt = now;
+			} else {
+				const expiresAt = now + durationMs;
+				subStore.subscribers.push({ email: order.email, language: order.language, native: order.native || '', level: order.level || 'N3', isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
+			}
+			saveSubscribers(subStore);
+
+			// Send the normal daily email immediately upon first payment confirmation
+			try {
+				const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+				const source = process.env.SOURCE_LANGUAGE || 'english';
+				const lang = (user && user.language) || order.language || 'japanese';
+				const lvl = (user && user.level) || order.level || 'N3';
+				const sentence = await generateSentence(source, lang, lvl);
+				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 65687 : lang === 'thai' ? (user && user.native === 'japanese' ? 66673 : 66672) : 65685));
+				const subject = `${lang === 'english' ? '今日の英語' : lang === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
+			} catch (e) {
+				req.log.error(e);
+			}
+
+			return { ok: true, paid: true };
 		} catch (e) {
 			return reply.code(500).send({ error: e.message || String(e) });
 		}

@@ -168,6 +168,19 @@ async function fetchFromDeepSeek(source, target, level) {
 const cache = new Map();
 function cacheKey(source, target, level) { return `daily_sentence_${source}_to_${target}_lvl_${level}`; }
 
+// Cleanup expired cache entries periodically
+function cleanupCache() {
+    const now = Date.now();
+    for (const [key, value] of cache.entries()) {
+        if (value.expiresAt <= now) {
+            cache.delete(key);
+        }
+    }
+}
+
+// Run cleanup every hour
+setInterval(cleanupCache, 60 * 60 * 1000);
+
 async function generateSentence(source, target, level='N3') {
     const key = cacheKey(source, target, level);
     const now = Date.now();
@@ -179,7 +192,8 @@ async function generateSentence(source, target, level='N3') {
         const parsed = parseResponse(data, source, target);
         cache.set(key, { value: parsed, expiresAt: now + 12 * 60 * 60 * 1000 });
         return parsed;
-    } catch (_) {
+    } catch (error) {
+        console.error('Failed to generate sentence:', error);
         return getFallbackSentence(source, target);
     }
 }

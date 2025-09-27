@@ -11,31 +11,40 @@ function App() {
   const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'|'thai_ja'>('japanese');
   const [plan, setPlan] = useState<'month'|'year'>('month');
   const [level, setLevel] = useState<string>('N3');
-  const targetLang: 'japanese'|'english'|'thai' = language === 'thai_en' || language === 'thai_ja' ? 'thai' : (language as any);
+  const targetLang: 'japanese'|'english'|'thai' = language === 'thai_en' || language === 'thai_ja' ? 'thai' : (language === 'english' ? 'english' : 'japanese');
   const native = language === 'english' ? 'japanese' : language === 'japanese' ? 'english' : (language === 'thai_en' ? 'english' : 'japanese');
   const isEnglish = targetLang === 'english';
   const isThai = targetLang === 'thai';
   const [payUrl, setPayUrl] = useState<string>('');
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [paid, setPaid] = useState<boolean>(false);
+  const [solanaPaid, setSolanaPaid] = useState<boolean>(false);
+  const [suiPaid, setSuiPaid] = useState<boolean>(false);
+  const [aptosPaid, setAptosPaid] = useState<boolean>(false);
   // QR removed; keep noop state removed
   const [suiConfig, setSuiConfig] = useState<{ merchant: string; usdcCoinType: string } | null>(null);
   const [suiFlowActive, setSuiFlowActive] = useState<boolean>(false);
   const [suiReference, setSuiReference] = useState<string>('');
   const [suiTxDigest, setSuiTxDigest] = useState<string>('');
   const [suiVerifying, setSuiVerifying] = useState<boolean>(false);
+  const [aptosConfig, setAptosConfig] = useState<{ merchant: string; usdcCoinType: string } | null>(null);
+  const [aptosFlowActive, setAptosFlowActive] = useState<boolean>(false);
+  const [aptosReference, setAptosReference] = useState<string>('');
+  const [aptosTxHash, setAptosTxHash] = useState<string>('');
+  const [aptosVerifying, setAptosVerifying] = useState<boolean>(false);
 
   useEffect(() => {
     fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ 
       if (cfg?.recipient) setRecipient(cfg.recipient);
       if (cfg?.sui) setSuiConfig({ merchant: cfg.sui.merchant || '', usdcCoinType: cfg.sui.usdcCoinType || '' });
-    });
+      if (cfg?.aptos) setAptosConfig({ merchant: cfg.aptos.merchant || '', usdcCoinType: cfg.aptos.usdcCoinType || '' });
+    }).catch(err => console.error('Config fetch error:', err));
+    
     setSentenceLoading(true);
     fetch('/api/daily-sentence?level=' + encodeURIComponent(level) + '&target=' + encodeURIComponent(targetLang) + '&source=' + encodeURIComponent(native))
       .then(r=>r.ok?r.json():null)
       .then(j=>setSentence(j||{}))
-      .catch(()=>{})
+      .catch(err => console.error('Sentence fetch error:', err))
       .finally(()=>setSentenceLoading(false));
   }, [level, targetLang, native]);
 
@@ -64,14 +73,18 @@ function App() {
 
   // If user changes plan, clear any existing QR and re-enable subscribe
   useEffect(() => {
-    setPaid(false);
+    setSolanaPaid(false);
+    setSuiPaid(false);
+    setAptosPaid(false);
     setReference('');
     setPayUrl('');
   }, [plan]);
 
   // If user changes email/language/level, also clear prior QR and re-enable
   useEffect(() => {
-    setPaid(false);
+    setSolanaPaid(false);
+    setSuiPaid(false);
+    setAptosPaid(false);
     setReference('');
     setPayUrl('');
   }, [email, language, level]);
@@ -83,21 +96,61 @@ function App() {
     setSuiTxDigest('');
   }, [email, language, level, plan]);
 
+  // Clear Aptos flow state when details change
+  useEffect(() => {
+    setAptosFlowActive(false);
+    setAptosReference('');
+    setAptosTxHash('');
+  }, [email, language, level, plan]);
+
   const detectPhantom = () => {
-    // @ts-ignore
-    if (window.solana && window.solana.isPhantom) { // @ts-ignore
-      return window.solana;
+    // Type-safe Phantom wallet detection
+    const windowWithSolana = window as any;
+    if (windowWithSolana.solana && windowWithSolana.solana.isPhantom) {
+      return windowWithSolana.solana;
     }
-    // @ts-ignore
-    if (window.phantom && window.phantom.solana && window.phantom.solana.isPhantom) { // @ts-ignore
-      return window.phantom.solana;
+    if (windowWithSolana.phantom && windowWithSolana.phantom.solana && windowWithSolana.phantom.solana.isPhantom) {
+      return windowWithSolana.phantom.solana;
+    }
+    return null;
+  };
+
+  const detectSuiWallet = () => {
+    // Type-safe Sui wallet detection
+    const windowWithSui = window as any;
+    if (windowWithSui.suiWallet) {
+      return windowWithSui.suiWallet;
+    }
+    if (windowWithSui.sui) {
+      return windowWithSui.sui;
+    }
+    if (windowWithSui.__suiWallet) {
+      return windowWithSui.__suiWallet;
+    }
+    return null;
+  };
+
+  const detectAptosWallet = () => {
+    // Type-safe Aptos wallet detection
+    const windowWithAptos = window as any;
+    if (windowWithAptos.aptos) {
+      return windowWithAptos.aptos;
+    }
+    if (windowWithAptos.petra) {
+      return windowWithAptos.petra;
+    }
+    if (windowWithAptos.martian) {
+      return windowWithAptos.martian;
+    }
+    if (windowWithAptos.rise) {
+      return windowWithAptos.rise;
     }
     return null;
   };
 
   const onSubscribeSolana = async () => {
     if (!email) { alert('Enter email'); return; }
-    setPaid(false);
+    setSolanaPaid(false);
     setLoading(true);
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
@@ -132,7 +185,7 @@ function App() {
             if (!r.ok) continue;
             const j = await r.json();
             if (j && j.paid) {
-              setPaid(true);
+              setSolanaPaid(true);
               // Hide QR and clear reference to prevent reusing same payment link
               setReference('');
               setPayUrl('');
@@ -148,16 +201,161 @@ function App() {
 
   const onSubscribeSui = async () => {
     if (!email) { alert('Enter email'); return; }
-    if (!suiConfig || !suiConfig.merchant || !suiConfig.usdcCoinType) { alert('Sui not configured.'); return; }
-    setPaid(false);
+    setSuiPaid(false);
     setLoading(true);
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
       if (!start?.reference) throw new Error(start?.error||'Failed to start');
       setSuiReference(start.reference);
-      setSuiFlowActive(true);
-      // Show instructions section for user to send USDC on Sui and paste tx digest
+
+      // Try to auto-detect and use Sui wallet
+      const suiProvider = detectSuiWallet();
+      if (suiProvider && suiConfig && suiConfig.merchant) {
+        try {
+          // Connect to Sui wallet
+          await suiProvider.connect();
+          
+          // Try to create and sign transaction automatically
+          const amount = start.amount;
+          const recipient = suiConfig.merchant;
+          const coinType = suiConfig.usdcCoinType;
+          
+          if (coinType && suiProvider.signAndExecuteTransactionBlock) {
+            try {
+              // Create USDC transfer transaction
+              const txb = new suiProvider.TransactionBlock();
+              
+              // Split coins for the payment amount (in smallest units)
+              const amountUnits = Math.round(Number(amount) * 1_000_000); // 6 decimals for USDC
+              const [coin] = txb.splitCoins(txb.gas, [amountUnits]);
+              
+              // Transfer to recipient
+              txb.transferObjects([coin], recipient);
+              
+              // Sign and execute transaction
+              const result = await suiProvider.signAndExecuteTransactionBlock({
+                transactionBlock: txb,
+                options: {
+                  showEffects: true,
+                  showObjectChanges: true
+                }
+              });
+              
+              if (result && result.digest) {
+                // Transaction successful, verify payment
+                setSuiTxDigest(result.digest);
+                await verifySuiPayment();
+                return;
+              }
+            } catch (txError) {
+              console.error('Sui transaction error:', txError);
+              // Fall through to manual process
+            }
+          }
+          
+          // Fallback to manual process with wallet connected
+          setSuiFlowActive(true);
+          alert(`Sui wallet connected! Please send ${amount} USDC to ${recipient} and paste the transaction digest below.`);
+        } catch (walletError) {
+          console.error('Sui wallet error:', walletError);
+          setSuiFlowActive(true);
+          alert('Sui wallet connection failed. Please send USDC manually and paste the transaction digest.');
+        }
+      } else {
+        // Fallback to manual process
+        setSuiFlowActive(true);
+        if (!suiConfig || !suiConfig.merchant) {
+          alert('Sui not configured. Please contact support or use Solana payment.');
+        }
+      }
     } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
+  };
+
+  const onSubscribeAptos = async () => {
+    if (!email) { alert('Enter email'); return; }
+    setAptosPaid(false);
+    setLoading(true);
+    try {
+      const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
+      if (!start?.reference) throw new Error(start?.error||'Failed to start');
+      setAptosReference(start.reference);
+
+      // Try to auto-detect and use Aptos wallet
+      const aptosProvider = detectAptosWallet();
+      if (aptosProvider && aptosConfig && aptosConfig.merchant) {
+        try {
+          // Connect to Aptos wallet
+          await aptosProvider.connect();
+          
+          // Try to create and sign transaction automatically
+          const amount = start.amount;
+          const recipient = aptosConfig.merchant;
+          const coinType = aptosConfig.usdcCoinType;
+          
+          if (coinType && aptosProvider.signAndSubmitTransaction) {
+            try {
+              // Create USDC transfer transaction
+              const amountUnits = Math.round(Number(amount) * 1_000_000); // 6 decimals for USDC
+              
+              const transaction = {
+                type: "entry_function_payload",
+                function: "0x1::coin::transfer",
+                arguments: [recipient, amountUnits],
+                type_arguments: [coinType]
+              };
+              
+              // Sign and execute transaction
+              const result = await aptosProvider.signAndSubmitTransaction(transaction);
+              
+              if (result && result.hash) {
+                // Transaction successful, verify payment
+                setAptosTxHash(result.hash);
+                await verifyAptosPayment();
+                return;
+              }
+            } catch (txError) {
+              console.error('Aptos transaction error:', txError);
+              // Fall through to manual process
+            }
+          }
+          
+          // Fallback to manual process with wallet connected
+          setAptosFlowActive(true);
+          alert(`Aptos wallet connected! Please send ${amount} USDC to ${recipient} and paste the transaction hash below.`);
+        } catch (walletError) {
+          console.error('Aptos wallet error:', walletError);
+          setAptosFlowActive(true);
+          alert('Aptos wallet connection failed. Please send USDC manually and paste the transaction hash.');
+        }
+      } else {
+        // Fallback to manual process
+        setAptosFlowActive(true);
+        if (!aptosConfig || !aptosConfig.merchant) {
+          alert('Aptos not configured. Please contact support or use Solana payment.');
+        }
+      }
+    } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
+  };
+
+  const verifyAptosPayment = async () => {
+    if (!aptosReference || !aptosTxHash) { alert('Enter Aptos transaction hash'); return; }
+    setAptosVerifying(true);
+    try {
+      const resp = await fetch('/api/aptos/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txHash: aptosTxHash.trim(), reference: aptosReference }) });
+      const j = await resp.json().catch(()=>({}));
+      if (!resp.ok) throw new Error(j?.error || 'Verification failed');
+      if (j && j.paid) {
+        setAptosPaid(true);
+        setAptosFlowActive(false);
+        setAptosReference('');
+        setAptosTxHash('');
+        alert('Payment confirmed! Subscription activated.');
+      } else {
+        alert('Not paid yet. Please check the hash and try again.');
+      }
+    } catch(e:any) {
+      alert(e?.message||String(e));
+    } finally { setAptosVerifying(false); }
   };
 
   const verifySuiPayment = async () => {
@@ -168,7 +366,7 @@ function App() {
       const j = await resp.json().catch(()=>({}));
       if (!resp.ok) throw new Error(j?.error || 'Verification failed');
       if (j && j.paid) {
-        setPaid(true);
+        setSuiPaid(true);
         setSuiFlowActive(false);
         setSuiReference('');
         setSuiTxDigest('');
@@ -257,36 +455,80 @@ function App() {
         </select>
       </div>
       <div style={{display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:16}}>
-        <button onClick={onSubscribeSolana} disabled={loading || paid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
-          {paid ? 'Subscribed' : (loading? 'Opening wallet…' : 'Subscribe with Solana')}
+        <button onClick={onSubscribeSolana} disabled={loading || solanaPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
+          {solanaPaid ? 'Subscribed' : (loading? 'Opening wallet…' : 'Subscribe with Solana')}
         </button>
-        <button onClick={onSubscribeSui} disabled={loading || paid || !suiConfig || !suiConfig.merchant} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)', boxShadow:'0 10px 20px rgba(6,182,212,0.35)'}}>
-          {paid ? 'Subscribed' : 'Subscribe with Sui'}
+        <button onClick={onSubscribeSui} disabled={loading || suiPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)', boxShadow:'0 10px 20px rgba(6,182,212,0.35)'}}>
+          {suiPaid ? 'Subscribed' : 'Subscribe with Sui'}
+        </button>
+        <button onClick={onSubscribeAptos} disabled={loading || aptosPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #3b82f6, #8b5cf6)', boxShadow:'0 10px 20px rgba(59,130,246,0.35)'}}>
+          {aptosPaid ? 'Subscribed' : 'Subscribe with Aptos'}
         </button>
       </div>
       {reference && payUrl && (
         <div style={{textAlign:'center', margin:'10px 0'}}>
           <a href={payUrl} style={{display:'inline-block', padding:'10px 14px', borderRadius:8, background:'#222', color:'#fff', textDecoration:'none'}}>Open payment in wallet</a>
-          <div style={{marginTop:8, fontSize:12, opacity:0.8}}>If it doesn’t open, copy this link into your wallet: <span style={{fontFamily:'monospace', wordBreak:'break-all'}}>{payUrl}</span></div>
+          <div style={{marginTop:8, fontSize:12, opacity:0.8}}>If the wallet doesn't open, you need to install a Solana wallet like Phantom.</div>
         </div>
       )}
 
-      {suiFlowActive && suiConfig && (
+      {suiFlowActive && (
         <div style={{textAlign:'center', margin:'12px auto', maxWidth:560}}>
           <div style={{marginBottom:8}}>
             <div style={{opacity:0.85}}>Send</div>
             <div style={{fontWeight:700}}> {plan === 'year' ? '12' : '2'} USDC (Sui mainnet) </div>
             <div style={{opacity:0.85, marginTop:6}}>to</div>
-            <div style={{fontFamily:'monospace', wordBreak:'break-all'}}>{suiConfig.merchant}</div>
+            {suiConfig && suiConfig.merchant ? (
+              <div style={{fontFamily:'monospace', wordBreak:'break-all', backgroundColor:'#222', padding:'8px', borderRadius:'4px'}}>{suiConfig.merchant}</div>
+            ) : (
+              <div style={{fontFamily:'monospace', wordBreak:'break-all', backgroundColor:'#333', padding:'8px', borderRadius:'4px', color:'#ff6b6b'}}>
+                Sui merchant address not configured. Please contact support.
+              </div>
+            )}
           </div>
           <div style={{marginTop:12}}>
             <input value={suiTxDigest} onChange={e=>setSuiTxDigest(e.target.value)} placeholder='Paste Sui transaction digest' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee', width:'100%', maxWidth:420}}/>
           </div>
           <div style={{marginTop:10}}>
-            <button onClick={verifySuiPayment} disabled={suiVerifying} style={{padding:'10px 16px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)'}}>
+            <button onClick={verifySuiPayment} disabled={suiVerifying || !suiConfig || !suiConfig.merchant} style={{padding:'10px 16px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)', opacity: (!suiConfig || !suiConfig.merchant) ? 0.5 : 1}}>
               {suiVerifying ? 'Verifying…' : 'Verify payment'}
             </button>
           </div>
+          {(!suiConfig || !suiConfig.merchant) && (
+            <div style={{marginTop:8, fontSize:12, color:'#ff6b6b'}}>
+              Sui payment verification is not configured. Please contact support.
+            </div>
+          )}
+        </div>
+      )}
+
+      {aptosFlowActive && (
+        <div style={{textAlign:'center', margin:'12px auto', maxWidth:560}}>
+          <div style={{marginBottom:8}}>
+            <div style={{opacity:0.85}}>Send</div>
+            <div style={{fontWeight:700}}> {plan === 'year' ? '12' : '2'} USDC (Aptos mainnet) </div>
+            <div style={{opacity:0.85, marginTop:6}}>to</div>
+            {aptosConfig && aptosConfig.merchant ? (
+              <div style={{fontFamily:'monospace', wordBreak:'break-all', backgroundColor:'#222', padding:'8px', borderRadius:'4px'}}>{aptosConfig.merchant}</div>
+            ) : (
+              <div style={{fontFamily:'monospace', wordBreak:'break-all', backgroundColor:'#333', padding:'8px', borderRadius:'4px', color:'#ff6b6b'}}>
+                Aptos merchant address not configured. Please contact support.
+              </div>
+            )}
+          </div>
+          <div style={{marginTop:12}}>
+            <input value={aptosTxHash} onChange={e=>setAptosTxHash(e.target.value)} placeholder='Paste Aptos transaction hash' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee', width:'100%', maxWidth:420}}/>
+          </div>
+          <div style={{marginTop:10}}>
+            <button onClick={verifyAptosPayment} disabled={aptosVerifying || !aptosConfig || !aptosConfig.merchant} style={{padding:'10px 16px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #3b82f6, #8b5cf6)', opacity: (!aptosConfig || !aptosConfig.merchant) ? 0.5 : 1}}>
+              {aptosVerifying ? 'Verifying…' : 'Verify payment'}
+            </button>
+          </div>
+          {(!aptosConfig || !aptosConfig.merchant) && (
+            <div style={{marginTop:8, fontSize:12, color:'#ff6b6b'}}>
+              Aptos payment verification is not configured. Please contact support.
+            </div>
+          )}
         </div>
       )}
       <hr style={{margin:'16px 0'}}/>

@@ -16,8 +16,8 @@ function parseArgs(argv) {
 
 (async function main() {
     const { lang, to } = parseArgs(process.argv);
-    if (!['j', 'e'].includes(lang)) {
-        console.error('Usage: node scripts/testEmail.js --lang=j|e [--to=email]');
+    if (!['j', 'e', 't'].includes(lang)) {
+        console.error('Usage: node scripts/testEmail.js --lang=j|e|t [--to=email]');
         process.exit(1);
     }
     if (!to) {
@@ -60,6 +60,23 @@ function parseArgs(argv) {
             grammar: sentence.grammar
         };
         subject = '今日の英語 ' + new Date().toLocaleDateString('en-US');
+    } else if (lang === 't') {
+        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || 66672);
+        const sentence = {
+            thai: 'สวัสดีครับ/ค่ะ',
+            reading: 'sawatdee krab/ka',
+            breakdown: 'สวัสดี (sawatdee) - hello/greeting\nครับ (krab) - polite particle (male)\nค่ะ (ka) - polite particle (female)',
+            grammar: 'สวัสดี is the standard Thai greeting. ครับ is used by males, ค่ะ by females. This is the most common way to say hello in Thailand.',
+            meaning: 'Hello (polite greeting)'
+        };
+        templateData = {
+            thai: sentence.thai,
+            reading: sentence.reading,
+            breakdown: sentence.breakdown,
+            grammar: sentence.grammar,
+            meaning: sentence.meaning
+        };
+        subject = '今日のタイ語 ' + new Date().toLocaleDateString('en-US');
     }
 
     try {

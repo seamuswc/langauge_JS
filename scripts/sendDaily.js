@@ -36,10 +36,15 @@ function loadSubscribers() {
     let sent = 0;
     for (const { language, level, users } of Object.values(grouped)) {
         const sentence = await generateSentence(source, language, level);
-        const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 65687 : 65685));
-        const subject = `${language === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+        const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : language === 'thai' ? '_TH' : ''}`] || (language === 'english' ? 65687 : language === 'thai' ? 66672 : 65685));
+        const subject = `${language === 'english' ? '今日の英語' : language === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
         for (const u of users) {
-            const ok = await sendEmailWithTemplate(u.email, templateId, sentence, subject);
+            // Choose template based on user's native language for Thai
+            let userTemplateId = templateId;
+            if (language === 'thai') {
+                userTemplateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || (u.native === 'japanese' ? 66673 : 66672));
+            }
+            const ok = await sendEmailWithTemplate(u.email, userTemplateId, sentence, subject);
             if (ok) sent += 1;
         }
     }
