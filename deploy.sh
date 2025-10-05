@@ -187,18 +187,19 @@ if ! command -v nginx &> /dev/null; then
     print_success "Nginx installed"
 fi
 
-# Create Nginx configuration
-print_status "🔧 Configuring Nginx reverse proxy..."
+# Create Nginx configuration for multiple domains
+print_status "🔧 Configuring Nginx reverse proxy for multiple domains..."
 NGINX_CONFIG="/etc/nginx/sites-available/language-app"
 NGINX_ENABLED="/etc/nginx/sites-enabled/language-app"
 
 # Get server IP for default configuration
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "your-server-ip")
 
+# Configure for both domains
 sudo tee $NGINX_CONFIG > /dev/null << EOF
 server {
     listen 80;
-    server_name $SERVER_IP _;
+    server_name nihongo.email eigo.email $SERVER_IP _;
     
     location / {
         proxy_pass http://localhost:8787;
@@ -214,7 +215,7 @@ EOF
 sudo ln -sf $NGINX_CONFIG $NGINX_ENABLED
 sudo nginx -t && sudo systemctl reload nginx
 
-print_success "Nginx configured for port 80 -> 8787"
+print_success "Nginx configured for nihongo.email, eigo.email, and $SERVER_IP -> 8787"
 
 # Setup firewall
 print_status "🔥 Configuring firewall..."
@@ -250,25 +251,14 @@ if ! command -v certbot &> /dev/null; then
     print_success "Certbot installed"
 fi
 
-# Check if domain is configured
-DOMAIN_CONFIGURED=false
-if [ -f "/etc/nginx/sites-available/language-app" ]; then
-    CURRENT_DOMAIN=$(grep "server_name" /etc/nginx/sites-available/language-app | awk '{print $2}' | head -1)
-    if [[ "$CURRENT_DOMAIN" != "_" && "$CURRENT_DOMAIN" != "$SERVER_IP" ]]; then
-        DOMAIN_CONFIGURED=true
-        print_success "Domain detected: $CURRENT_DOMAIN"
-    fi
-fi
+# Setup SSL for both domains
+print_status "🔐 Setting up SSL certificates for nihongo.email and eigo.email..."
 
-# Setup SSL if domain is configured
-if [ "$DOMAIN_CONFIGURED" = true ]; then
-    print_status "🔐 Setting up SSL certificate for $CURRENT_DOMAIN..."
-    
-    # Update Nginx config for SSL
-    sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
+# Update Nginx config for SSL with both domains
+sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
 server {
     listen 80;
-    server_name $CURRENT_DOMAIN;
+    server_name nihongo.email eigo.email $SERVER_IP _;
     
     location / {
         proxy_pass http://localhost:8787;
@@ -281,10 +271,10 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name $CURRENT_DOMAIN;
+    server_name nihongo.email eigo.email;
     
-    ssl_certificate /etc/letsencrypt/live/$CURRENT_DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$CURRENT_DOMAIN/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/nihongo.email/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/nihongo.email/privkey.pem;
     
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
@@ -302,25 +292,16 @@ server {
 }
 EOF
 
-    # Get SSL certificate
-    print_status "🔐 Obtaining SSL certificate..."
-    sudo certbot --nginx -d $CURRENT_DOMAIN --non-interactive --agree-tos --email admin@$CURRENT_DOMAIN --redirect
-    
-    # Setup auto-renewal
-    print_status "🔄 Setting up SSL auto-renewal..."
-    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
-    
-    print_success "🔒 SSL certificate installed and auto-renewal configured"
-    SSL_URL="https://$CURRENT_DOMAIN"
-else
-    print_warning "⚠️  No custom domain configured. SSL setup skipped."
-    print_warning "To enable SSL:"
-    print_warning "  1. Point your domain DNS to: $SERVER_IP"
-    print_warning "  2. Update /etc/nginx/sites-available/language-app"
-    print_warning "  3. Change 'server_name' to your domain"
-    print_warning "  4. Run: sudo certbot --nginx -d your-domain.com"
-    SSL_URL=""
-fi
+# Get SSL certificates for both domains
+print_status "🔐 Obtaining SSL certificates for both domains..."
+sudo certbot --nginx -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email --redirect
+
+# Setup auto-renewal
+print_status "🔄 Setting up SSL auto-renewal..."
+(crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+
+print_success "🔒 SSL certificates installed for both domains with auto-renewal configured"
+SSL_URLS="https://nihongo.email and https://eigo.email"
 
 # Reload Nginx
 sudo nginx -t && sudo systemctl reload nginx
@@ -329,21 +310,17 @@ sudo nginx -t && sudo systemctl reload nginx
 print_success "🌐 Your application is now accessible at:"
 echo ""
 echo "  🌍 http://$SERVER_IP"
-if [ "$DOMAIN_CONFIGURED" = true ]; then
-    echo "  🔒 https://$CURRENT_DOMAIN (SSL enabled)"
-    echo "  🌍 http://$CURRENT_DOMAIN (redirects to HTTPS)"
-fi
+echo "  🔒 https://nihongo.email (SSL enabled)"
+echo "  🔒 https://eigo.email (SSL enabled)"
+echo "  🌍 http://nihongo.email (redirects to HTTPS)"
+echo "  🌍 http://eigo.email (redirects to HTTPS)"
 echo "  🌍 http://localhost:8787 (direct access)"
 echo ""
-if [ "$DOMAIN_CONFIGURED" = false ]; then
-    echo "📋 To configure a custom domain with SSL:"
-    echo "  1. Point your domain's DNS to: $SERVER_IP"
-    echo "  2. Update /etc/nginx/sites-available/language-app"
-    echo "  3. Change 'server_name' to your domain"
-    echo "  4. Run: sudo certbot --nginx -d your-domain.com"
-    echo "  5. Run: sudo nginx -t && sudo systemctl reload nginx"
-    echo ""
-fi
+echo "📋 DNS Configuration Required:"
+echo "  Point both domains to: $SERVER_IP"
+echo "  - nihongo.email → $SERVER_IP"
+echo "  - eigo.email → $SERVER_IP"
+echo ""
 
 # Setup log rotation for PM2
 print_status "📝 Setting up log rotation..."
