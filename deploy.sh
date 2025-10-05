@@ -37,15 +37,34 @@ if [ ! -f "package.json" ] || [ ! -f "server.js" ]; then
     exit 1
 fi
 
-# Check if Node.js is installed
+# Check if Node.js is installed, install if missing
 if ! command -v node &> /dev/null; then
-    print_error "Node.js is not installed. Please install Node.js first."
-    exit 1
+    print_warning "Node.js is not installed. Installing Node.js..."
+    
+    # Detect OS and install Node.js
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux - install Node.js via NodeSource repository
+        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        sudo apt-get install -y nodejs
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS - try to install via Homebrew
+        if command -v brew &> /dev/null; then
+            brew install node
+        else
+            print_error "Please install Node.js manually on macOS: https://nodejs.org/"
+            exit 1
+        fi
+    else
+        print_error "Unsupported operating system. Please install Node.js manually: https://nodejs.org/"
+        exit 1
+    fi
+    
+    print_success "Node.js installed successfully"
 fi
 
-# Check if npm is installed
+# Check if npm is available
 if ! command -v npm &> /dev/null; then
-    print_error "npm is not installed. Please install npm first."
+    print_error "npm is not available. Please check your Node.js installation."
     exit 1
 fi
 
