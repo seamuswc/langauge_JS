@@ -251,15 +251,28 @@ if ! command -v certbot &> /dev/null; then
     print_success "Certbot installed"
 fi
 
-# Setup SSL for both domains
+# Setup SSL for both domains (only if domains are accessible)
 print_status "🔐 Setting up SSL certificates for nihongo.email and eigo.email..."
 
-# First, get SSL certificates with HTTP-only config
-print_status "🔐 Obtaining SSL certificates for both domains..."
-sudo certbot certonly --nginx -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email
+# Check if domains are pointing to this server
+print_status "🔍 Checking if domains are accessible..."
+DOMAIN_ACCESSIBLE=false
 
-# Now update Nginx config with SSL
-sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
+# Test if domains resolve to this server
+if nslookup nihongo.email 2>/dev/null | grep -q "$SERVER_IP" && nslookup eigo.email 2>/dev/null | grep -q "$SERVER_IP"; then
+    DOMAIN_ACCESSIBLE=true
+    print_success "Both domains are pointing to this server"
+else
+    print_warning "Domains not yet pointing to this server ($SERVER_IP)"
+    print_warning "SSL setup will be skipped until DNS is configured"
+fi
+
+if [ "$DOMAIN_ACCESSIBLE" = true ]; then
+    # First, get SSL certificates with HTTP-only config
+    print_status "🔐 Obtaining SSL certificates for both domains..."
+    if sudo certbot certonly --nginx -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email; then
+        # Now update Nginx config with SSL
+        sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
 server {
     listen 80;
     server_name nihongo.email eigo.email $SERVER_IP _;
@@ -297,12 +310,20 @@ server {
 }
 EOF
 
-# Setup auto-renewal
-print_status "🔄 Setting up SSL auto-renewal..."
-(crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+        # Setup auto-renewal
+        print_status "🔄 Setting up SSL auto-renewal..."
+        (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
 
-print_success "🔒 SSL certificates installed for both domains with auto-renewal configured"
-SSL_URLS="https://nihongo.email and https://eigo.email"
+        print_success "🔒 SSL certificates installed for both domains with auto-renewal configured"
+        SSL_URLS="https://nihongo.email and https://eigo.email"
+    else
+        print_warning "SSL certificate setup failed. Will retry after DNS propagation."
+        SSL_URLS=""
+    fi
+else
+    print_warning "SSL setup skipped - domains not pointing to this server yet"
+    SSL_URLS=""
+fi
 
 # Reload Nginx
 sudo nginx -t && sudo systemctl reload nginx
@@ -311,10 +332,15 @@ sudo nginx -t && sudo systemctl reload nginx
 print_success "🌐 Your application is now accessible at:"
 echo ""
 echo "  🌍 http://$SERVER_IP"
-echo "  🔒 https://nihongo.email (SSL enabled)"
-echo "  🔒 https://eigo.email (SSL enabled)"
-echo "  🌍 http://nihongo.email (redirects to HTTPS)"
-echo "  🌍 http://eigo.email (redirects to HTTPS)"
+if [ "$SSL_URLS" != "" ]; then
+    echo "  🔒 https://nihongo.email (SSL enabled)"
+    echo "  🔒 https://eigo.email (SSL enabled)"
+    echo "  🌍 http://nihongo.email (redirects to HTTPS)"
+    echo "  🌍 http://eigo.email (redirects to HTTPS)"
+else
+    echo "  🌍 http://nihongo.email (SSL will be enabled after DNS setup)"
+    echo "  🌍 http://eigo.email (SSL will be enabled after DNS setup)"
+fi
 echo "  🌍 http://localhost:8787 (direct access)"
 echo ""
 echo "📋 DNS Configuration Required:"
@@ -322,6 +348,11 @@ echo "  Point both domains to: $SERVER_IP"
 echo "  - nihongo.email → $SERVER_IP"
 echo "  - eigo.email → $SERVER_IP"
 echo ""
+if [ "$SSL_URLS" = "" ]; then
+    echo "🔄 After DNS propagation (5-15 minutes), run:"
+    echo "  sudo certbot --nginx -d nihongo.email -d eigo.email"
+    echo ""
+fi
 
 # Setup log rotation for PM2
 print_status "📝 Setting up log rotation..."
