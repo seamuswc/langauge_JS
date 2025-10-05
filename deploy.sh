@@ -328,4 +328,88 @@ if [ "$DOMAIN_CONFIGURED" = false ]; then
     echo ""
 fi
 
+# Setup log rotation for PM2
+print_status "📝 Setting up log rotation..."
+sudo tee /etc/logrotate.d/pm2 > /dev/null << EOF
+/root/.pm2/logs/*.log {
+    daily
+    missingok
+    rotate 52
+    compress
+    delaycompress
+    notifempty
+    create 644 root root
+    postrotate
+        pm2 reloadLogs
+    endscript
+}
+EOF
+
+print_success "Log rotation configured"
+
+# Setup system monitoring
+print_status "📊 Setting up system monitoring..."
+if ! command -v htop &> /dev/null; then
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        sudo apt-get install -y htop
+    fi
+fi
+
+# Setup PM2 startup script
+print_status "🔄 Setting up PM2 auto-startup..."
+sudo pm2 startup systemd -u $USER --hp $HOME
+pm2 save
+
+print_success "PM2 auto-startup configured"
+
+# Setup basic security
+print_status "🔐 Setting up basic security..."
+# Disable root login via SSH (if not already disabled)
+if [ -f "/etc/ssh/sshd_config" ]; then
+    sudo sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+    sudo sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+fi
+
+# Setup fail2ban for basic protection
+if ! command -v fail2ban &> /dev/null; then
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        sudo apt-get install -y fail2ban
+        sudo systemctl enable fail2ban
+        sudo systemctl start fail2ban
+    fi
+fi
+
+print_success "Basic security configured"
+
+# Setup backup script
+print_status "💾 Setting up backup system..."
+sudo tee /usr/local/bin/backup-language-app.sh > /dev/null << 'EOF'
+#!/bin/bash
+BACKUP_DIR="/var/backups/language-app"
+APP_DIR="/var/www/language-app"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+mkdir -p $BACKUP_DIR
+tar -czf $BACKUP_DIR/backup_$DATE.tar.gz -C $APP_DIR data/ .env
+find $BACKUP_DIR -name "backup_*.tar.gz" -mtime +7 -delete
+EOF
+
+sudo chmod +x /usr/local/bin/backup-language-app.sh
+
+# Add backup to cron (daily at 2 AM)
+(crontab -l 2>/dev/null; echo "0 2 * * * /usr/local/bin/backup-language-app.sh") | crontab -
+
+print_success "Backup system configured"
+
+# Final system check
+print_status "🔍 Running final system check..."
+echo ""
+echo "📊 System Status:"
+echo "  ✅ Node.js: $(node --version)"
+echo "  ✅ PM2: $(pm2 --version)"
+echo "  ✅ Nginx: $(nginx -v 2>&1 | cut -d' ' -f3)"
+echo "  ✅ SSL: $(if [ -d "/etc/letsencrypt" ]; then echo "Available"; else echo "Not configured"; fi)"
+echo "  ✅ Firewall: $(if command -v ufw &> /dev/null; then sudo ufw status | head -1; elif command -v firewall-cmd &> /dev/null; then echo "firewalld active"; else echo "Not configured"; fi)"
+echo ""
+
 print_success "🚀 Language Learning App is now running!"
