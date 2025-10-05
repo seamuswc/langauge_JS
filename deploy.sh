@@ -141,24 +141,91 @@ echo "  pm2 monit                                # Monitor all processes"
 echo "  npm run deploy                           # Run this deployment script"
 echo ""
 
-# Step 10: Check if .env file exists
+# Step 10: Setup domain and environment
+print_status "🌐 Setting up domain and environment configuration..."
+
+# Create .env file if it doesn't exist
 if [ ! -f ".env" ]; then
-    print_warning "⚠️  No .env file found. You may need to create one with your environment variables."
-    echo ""
-    echo "Required environment variables (create .env file):"
-    echo "  PORT=8787"
-    echo "  HOST=0.0.0.0"
-    echo "  SOURCE_LANGUAGE=english"
-    echo "  TARGET_LANGUAGE=japanese"
-    echo "  SOLANA_RPC_URL=https://api.mainnet-beta.solana.com"
-    echo "  SOLANA_MERCHANT_ADDRESS=your_merchant_address"
-    echo "  TENCENT_SES_SECRET_ID=your_secret_id"
-    echo "  TENCENT_SES_SECRET_KEY=your_secret_key"
-    echo "  TENCENT_SES_TEMPLATE_ID=your_template_id"
-    echo "  TENCENT_SES_TEMPLATE_ID_EN=your_english_template_id"
-    echo "  TENCENT_SES_TEMPLATE_ID_TH=your_thai_template_id"
-    echo "  DEEPSEEK_API_KEY=your_deepseek_api_key"
-    echo ""
+    print_warning "Creating .env file with default settings..."
+    cp .env.example .env
+    print_success ".env file created"
 fi
+
+# Setup Nginx reverse proxy if not exists
+if ! command -v nginx &> /dev/null; then
+    print_warning "Installing Nginx for domain configuration..."
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        sudo apt-get update
+        sudo apt-get install -y nginx
+        sudo systemctl enable nginx
+        sudo systemctl start nginx
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install nginx
+            brew services start nginx
+        else
+            print_warning "Please install Nginx manually on macOS"
+        fi
+    fi
+    print_success "Nginx installed"
+fi
+
+# Create Nginx configuration
+print_status "🔧 Configuring Nginx reverse proxy..."
+NGINX_CONFIG="/etc/nginx/sites-available/language-app"
+NGINX_ENABLED="/etc/nginx/sites-enabled/language-app"
+
+# Get server IP for default configuration
+SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "your-server-ip")
+
+sudo tee $NGINX_CONFIG > /dev/null << EOF
+server {
+    listen 80;
+    server_name $SERVER_IP _;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+# Enable the site
+sudo ln -sf $NGINX_CONFIG $NGINX_ENABLED
+sudo nginx -t && sudo systemctl reload nginx
+
+print_success "Nginx configured for port 80 -> 8787"
+
+# Setup firewall
+print_status "🔥 Configuring firewall..."
+if command -v ufw &> /dev/null; then
+    sudo ufw allow 22
+    sudo ufw allow 80
+    sudo ufw allow 443
+    sudo ufw --force enable
+elif command -v firewall-cmd &> /dev/null; then
+    sudo firewall-cmd --add-port=80/tcp --permanent
+    sudo firewall-cmd --add-port=443/tcp --permanent
+    sudo firewall-cmd --reload
+fi
+
+print_success "Firewall configured"
+
+# Display access information
+print_success "🌐 Your application is now accessible at:"
+echo ""
+echo "  🌍 http://$SERVER_IP"
+echo "  🌍 http://your-domain.com (if DNS is configured)"
+echo "  🌍 http://localhost:8787 (direct access)"
+echo ""
+echo "📋 To configure a custom domain:"
+echo "  1. Point your domain's DNS to: $SERVER_IP"
+echo "  2. Update /etc/nginx/sites-available/language-app"
+echo "  3. Change 'server_name' to your domain"
+echo "  4. Run: sudo nginx -t && sudo systemctl reload nginx"
+echo ""
 
 print_success "🚀 Language Learning App is now running!"
