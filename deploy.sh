@@ -43,8 +43,8 @@ if ! command -v node &> /dev/null; then
     
     # Detect OS and install Node.js
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux - install Node.js via NodeSource repository
-        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        # Linux - install Node.js 20 via NodeSource repository
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
         sudo apt-get install -y nodejs
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS - try to install via Homebrew
