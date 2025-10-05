@@ -214,18 +214,118 @@ fi
 
 print_success "Firewall configured"
 
+# Setup SSL with Let's Encrypt
+print_status "🔒 Setting up SSL/HTTPS with Let's Encrypt..."
+
+# Install certbot if not exists
+if ! command -v certbot &> /dev/null; then
+    print_warning "Installing Certbot for SSL certificates..."
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        sudo apt-get update
+        sudo apt-get install -y certbot python3-certbot-nginx
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install certbot
+        else
+            print_warning "Please install Certbot manually on macOS"
+        fi
+    fi
+    print_success "Certbot installed"
+fi
+
+# Check if domain is configured
+DOMAIN_CONFIGURED=false
+if [ -f "/etc/nginx/sites-available/language-app" ]; then
+    CURRENT_DOMAIN=$(grep "server_name" /etc/nginx/sites-available/language-app | awk '{print $2}' | head -1)
+    if [[ "$CURRENT_DOMAIN" != "_" && "$CURRENT_DOMAIN" != "$SERVER_IP" ]]; then
+        DOMAIN_CONFIGURED=true
+        print_success "Domain detected: $CURRENT_DOMAIN"
+    fi
+fi
+
+# Setup SSL if domain is configured
+if [ "$DOMAIN_CONFIGURED" = true ]; then
+    print_status "🔐 Setting up SSL certificate for $CURRENT_DOMAIN..."
+    
+    # Update Nginx config for SSL
+    sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
+server {
+    listen 80;
+    server_name $CURRENT_DOMAIN;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $CURRENT_DOMAIN;
+    
+    ssl_certificate /etc/letsencrypt/live/$CURRENT_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$CURRENT_DOMAIN/privkey.pem;
+    
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+    # Get SSL certificate
+    print_status "🔐 Obtaining SSL certificate..."
+    sudo certbot --nginx -d $CURRENT_DOMAIN --non-interactive --agree-tos --email admin@$CURRENT_DOMAIN --redirect
+    
+    # Setup auto-renewal
+    print_status "🔄 Setting up SSL auto-renewal..."
+    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+    
+    print_success "🔒 SSL certificate installed and auto-renewal configured"
+    SSL_URL="https://$CURRENT_DOMAIN"
+else
+    print_warning "⚠️  No custom domain configured. SSL setup skipped."
+    print_warning "To enable SSL:"
+    print_warning "  1. Point your domain DNS to: $SERVER_IP"
+    print_warning "  2. Update /etc/nginx/sites-available/language-app"
+    print_warning "  3. Change 'server_name' to your domain"
+    print_warning "  4. Run: sudo certbot --nginx -d your-domain.com"
+    SSL_URL=""
+fi
+
+# Reload Nginx
+sudo nginx -t && sudo systemctl reload nginx
+
 # Display access information
 print_success "🌐 Your application is now accessible at:"
 echo ""
 echo "  🌍 http://$SERVER_IP"
-echo "  🌍 http://your-domain.com (if DNS is configured)"
+if [ "$DOMAIN_CONFIGURED" = true ]; then
+    echo "  🔒 https://$CURRENT_DOMAIN (SSL enabled)"
+    echo "  🌍 http://$CURRENT_DOMAIN (redirects to HTTPS)"
+fi
 echo "  🌍 http://localhost:8787 (direct access)"
 echo ""
-echo "📋 To configure a custom domain:"
-echo "  1. Point your domain's DNS to: $SERVER_IP"
-echo "  2. Update /etc/nginx/sites-available/language-app"
-echo "  3. Change 'server_name' to your domain"
-echo "  4. Run: sudo nginx -t && sudo systemctl reload nginx"
-echo ""
+if [ "$DOMAIN_CONFIGURED" = false ]; then
+    echo "📋 To configure a custom domain with SSL:"
+    echo "  1. Point your domain's DNS to: $SERVER_IP"
+    echo "  2. Update /etc/nginx/sites-available/language-app"
+    echo "  3. Change 'server_name' to your domain"
+    echo "  4. Run: sudo certbot --nginx -d your-domain.com"
+    echo "  5. Run: sudo nginx -t && sudo systemctl reload nginx"
+    echo ""
+fi
 
 print_success "🚀 Language Learning App is now running!"
