@@ -251,9 +251,65 @@ if ! command -v certbot &> /dev/null; then
     print_success "Certbot installed"
 fi
 
-# Skip SSL setup for now - will be done manually after DNS is configured
-print_status "🔐 SSL setup will be configured after DNS is set up"
-SSL_URLS=""
+# Setup SSL for both domains
+print_status "🔐 Setting up SSL certificates for nihongo.email and eigo.email..."
+
+# Try to get SSL certificates
+print_status "🔐 Obtaining SSL certificates for both domains..."
+if sudo certbot certonly --standalone -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email; then
+    print_success "SSL certificates obtained successfully"
+    
+    # Update Nginx config with SSL
+    sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
+server {
+    listen 80;
+    server_name nihongo.email eigo.email $SERVER_IP _;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name nihongo.email eigo.email;
+    
+    ssl_certificate /etc/letsencrypt/live/nihongo.email/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/nihongo.email/privkey.pem;
+    
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+    # Setup auto-renewal
+    print_status "🔄 Setting up SSL auto-renewal..."
+    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+
+    print_success "🔒 SSL certificates installed for both domains with auto-renewal configured"
+    SSL_URLS="https://nihongo.email and https://eigo.email"
+else
+    print_warning "SSL certificate setup failed - domains may not be pointing to this server yet"
+    print_warning "You can retry SSL setup later with:"
+    print_warning "  sudo certbot --nginx -d nihongo.email -d eigo.email"
+    SSL_URLS=""
+fi
 
 # Reload Nginx
 sudo nginx -t && sudo systemctl reload nginx
@@ -262,21 +318,30 @@ sudo nginx -t && sudo systemctl reload nginx
 print_success "🌐 Your application is now accessible at:"
 echo ""
 echo "  🌍 http://$SERVER_IP"
+if [ "$SSL_URLS" != "" ]; then
+    echo "  🔒 https://nihongo.email (SSL enabled)"
+    echo "  🔒 https://eigo.email (SSL enabled)"
+    echo "  🌍 http://nihongo.email (redirects to HTTPS)"
+    echo "  🌍 http://eigo.email (redirects to HTTPS)"
+else
+    echo "  🌍 http://nihongo.email (SSL will be enabled after DNS setup)"
+    echo "  🌍 http://eigo.email (SSL will be enabled after DNS setup)"
+fi
 echo "  🌍 http://localhost:8787 (direct access)"
 echo ""
-echo "📋 Next Steps:"
-echo "  1. Point your domains to: $SERVER_IP"
-echo "     - nihongo.email → $SERVER_IP"
-echo "     - eigo.email → $SERVER_IP"
-echo ""
-echo "  2. Wait 5-15 minutes for DNS propagation"
-echo ""
-echo "  3. Then run SSL setup:"
-echo "     sudo certbot --nginx -d nihongo.email -d eigo.email"
-echo ""
-echo "  4. Your sites will then be available at:"
-echo "     - https://nihongo.email"
-echo "     - https://eigo.email"
+if [ "$SSL_URLS" = "" ]; then
+    echo "📋 To enable SSL:"
+    echo "  1. Point your domains to: $SERVER_IP"
+    echo "     - nihongo.email → $SERVER_IP"
+    echo "     - eigo.email → $SERVER_IP"
+    echo ""
+    echo "  2. Wait 5-15 minutes for DNS propagation"
+    echo ""
+    echo "  3. Then run: sudo certbot --nginx -d nihongo.email -d eigo.email"
+    echo ""
+else
+    echo "🎉 SSL is fully configured and working!"
+fi
 echo ""
 
 # Setup log rotation for PM2
