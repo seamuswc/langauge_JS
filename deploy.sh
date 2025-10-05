@@ -81,7 +81,24 @@ if ! command -v git &> /dev/null; then
     SKIP_GIT_PULL=true
 fi
 
-# Step 1: Pull latest code (if git is available and not in a clean state)
+# Step 1: Setup proper web directory structure
+print_status "📁 Setting up web directory structure..."
+WEB_DIR="/var/www/language-app"
+CURRENT_DIR=$(pwd)
+
+# Create web directory if it doesn't exist
+sudo mkdir -p $WEB_DIR
+
+# If we're not already in the web directory, copy files there
+if [ "$CURRENT_DIR" != "$WEB_DIR" ]; then
+    print_status "📂 Moving application to web directory: $WEB_DIR"
+    sudo cp -r . $WEB_DIR/
+    sudo chown -R $USER:$USER $WEB_DIR
+    cd $WEB_DIR
+    print_success "Application moved to $WEB_DIR"
+fi
+
+# Step 2: Pull latest code (if git is available and not in a clean state)
 if [ "$SKIP_GIT_PULL" != true ]; then
     print_status "📥 Pulling latest code from repository..."
     if git status --porcelain | grep -q .; then
@@ -94,42 +111,42 @@ else
     print_warning "Skipping git pull (git not available or repository not found)"
 fi
 
-# Step 2: Install dependencies
+# Step 3: Install dependencies
 print_status "📦 Installing dependencies..."
 npm ci --production=false || npm install
 print_success "Dependencies installed"
 
-# Step 3: Build React frontend
+# Step 4: Build React frontend
 print_status "🏗️  Building React frontend..."
 npm run build
 print_success "Frontend built successfully"
 
-# Step 4: Stop existing PM2 processes
+# Step 5: Stop existing PM2 processes
 print_status "🔄 Managing PM2 processes..."
 pm2 delete all 2>/dev/null || print_warning "No existing PM2 processes to delete"
 
-# Step 5: Start main application
+# Step 6: Start main application
 print_status "🚀 Starting main application..."
 pm2 start server.js --name "language-app" --watch --max-memory-restart 500M
 print_success "Main application started"
 
-# Step 6: Start daily email scheduler
+# Step 7: Start daily email scheduler
 print_status "📧 Setting up daily email scheduler..."
 pm2 start scripts/sendDaily.js --name "daily-sentence-mailer" --cron "0 9 * * *" --no-autorestart
 print_success "Daily email scheduler configured"
 
-# Step 7: Save PM2 configuration
+# Step 8: Save PM2 configuration
 print_status "💾 Saving PM2 configuration..."
 pm2 save
 print_success "PM2 configuration saved"
 
-# Step 8: Show final status
+# Step 9: Show final status
 print_status "📊 Deployment Status:"
 echo ""
 pm2 status
 echo ""
 
-# Step 9: Display useful information
+# Step 10: Display useful information
 print_success "🎉 Deployment completed successfully!"
 echo ""
 echo "📋 Useful commands:"
@@ -141,7 +158,7 @@ echo "  pm2 monit                                # Monitor all processes"
 echo "  npm run deploy                           # Run this deployment script"
 echo ""
 
-# Step 10: Setup domain and environment
+# Step 11: Setup domain and environment
 print_status "🌐 Setting up domain and environment configuration..."
 
 # Create .env file if it doesn't exist
