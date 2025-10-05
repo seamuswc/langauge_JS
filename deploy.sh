@@ -118,6 +118,23 @@ print_success "Dependencies installed"
 
 # Step 4: Build React frontend
 print_status "🏗️  Building React frontend..."
+# Check Node.js version
+NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+if [ "$NODE_VERSION" -lt 20 ]; then
+    print_error "Node.js version $NODE_VERSION is too old. Vite requires Node.js 20+"
+    print_error "Please upgrade Node.js and run the script again"
+    exit 1
+fi
+print_status "Node.js version: $(node --version) ✓"
+
+# Clean install React dependencies
+print_status "🧹 Cleaning React UI dependencies..."
+cd react-ui
+rm -rf node_modules package-lock.json
+npm install
+cd ..
+
+# Build React frontend
 npm run build
 print_success "Frontend built successfully"
 
@@ -128,7 +145,16 @@ pm2 delete all 2>/dev/null || print_warning "No existing PM2 processes to delete
 # Step 6: Start main application
 print_status "🚀 Starting main application..."
 pm2 start server.js --name "language-app" --watch --max-memory-restart 500M
-print_success "Main application started"
+
+# Check if app started successfully
+sleep 3
+if pm2 list | grep -q "language-app.*online"; then
+    print_success "Main application started successfully"
+else
+    print_error "Application failed to start. Checking logs..."
+    pm2 logs language-app --lines 10
+    print_error "Please check the logs above for errors"
+fi
 
 # Step 7: Start daily email scheduler
 print_status "📧 Setting up daily email scheduler..."
