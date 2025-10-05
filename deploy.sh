@@ -254,7 +254,11 @@ fi
 # Setup SSL for both domains
 print_status "🔐 Setting up SSL certificates for nihongo.email and eigo.email..."
 
-# Update Nginx config for SSL with both domains
+# First, get SSL certificates with HTTP-only config
+print_status "🔐 Obtaining SSL certificates for both domains..."
+sudo certbot certonly --nginx -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email
+
+# Now update Nginx config with SSL
 sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
 server {
     listen 80;
@@ -270,7 +274,8 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name nihongo.email eigo.email;
     
     ssl_certificate /etc/letsencrypt/live/nihongo.email/fullchain.pem;
@@ -291,10 +296,6 @@ server {
     }
 }
 EOF
-
-# Get SSL certificates for both domains
-print_status "🔐 Obtaining SSL certificates for both domains..."
-sudo certbot --nginx -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email --redirect
 
 # Setup auto-renewal
 print_status "🔄 Setting up SSL auto-renewal..."
