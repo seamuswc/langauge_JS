@@ -128,6 +128,11 @@ function App() {
             }
           } catch {}
         }
+        // Timeout - close QR and notify user
+        setShowQR(false);
+        setReference('');
+        setPayUrl('');
+        alert('支払い確認がタイムアウトしました。\n\n支払いが完了している場合は数分お待ちください。完了していない場合は、もう一度お試しください。');
       })();
 
     } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
