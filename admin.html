@@ -91,6 +91,7 @@
 
             <div class="section">
                 <h2>💰 Recent Orders</h2>
+                <button class="btn btn-danger" onclick="cleanupPending()" style="margin-bottom: 16px;">🧹 Cleanup Old Pending Orders (24h+)</button>
                 <table id="ordersTable">
                     <thead>
                         <tr>
@@ -264,6 +265,30 @@
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('adminPanel').style.display = 'block';
             loadDashboard();
+        }
+
+        async function cleanupPending() {
+            if (!confirm('This will delete all pending orders older than 24 hours. Continue?')) return;
+            
+            try {
+                const res = await fetch('/admin/cleanup-pending', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`Cleaned up ${data.deleted} old pending orders`);
+                    loadDashboard();
+                } else {
+                    alert('Failed to cleanup: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
         }
 
         // Enter key to login

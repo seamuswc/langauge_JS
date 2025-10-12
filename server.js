@@ -209,6 +209,30 @@ async function main() {
 			return reply.code(500).send({ error: e.message });
 		}
 	});
+	
+	// Cleanup old pending orders (older than 24 hours)
+	app.post('/admin/cleanup-pending', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const store = loadOrders();
+			const now = Date.now();
+			const oneDayAgo = now - (24 * 60 * 60 * 1000);
+			
+			const beforeCount = store.orders.length;
+			store.orders = store.orders.filter(o => {
+				// Keep paid orders and recent pending orders
+				return o.status === 'paid' || o.createdAt > oneDayAgo;
+			});
+			const afterCount = store.orders.length;
+			const deleted = beforeCount - afterCount;
+			
+			saveOrders(store);
+			return { success: true, deleted };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
 
 	// Static files for React app (after admin routes)
 	await app.register(fastifyStatic, { root: path.join(__dirname, 'react-ui', 'dist'), index: ['index.html'] });
