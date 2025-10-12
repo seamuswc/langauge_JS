@@ -8,6 +8,7 @@ const fastifyStatic = require('@fastify/static');
 const path = require('path');
 const fs = require('fs');
 const { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction, Keypair } = require('@solana/web3.js');
+const { ethers } = require('ethers');
 const { generateSentence } = require('./services/dailySentence');
 const { sendEmailWithTemplate } = require('./services/tencentSes');
 const DEFAULT_RECIPIENT = '8zS5w8MHSDQ4Pc12DZRLYQ78hgEwnBemVJMrfjUN6xXj';
@@ -245,6 +246,23 @@ async function main() {
 		aptos: {
 			merchant: process.env.APTOS_MERCHANT_ADDRESS || '',
 			usdcCoinType: process.env.APTOS_USDC_COIN_TYPE || ''
+		},
+		eth: {
+			merchant: process.env.ETH_MERCHANT_ADDRESS || '',
+			chains: {
+				base: {
+					chainId: 8453,
+					name: 'Base',
+					rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+					usdcAddress: process.env.USDC_BASE || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+				},
+				arbitrum: {
+					chainId: 42161,
+					name: 'Arbitrum',
+					rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+					usdcAddress: process.env.USDC_ARBITRUM || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'
+				}
+			}
 		}
 	}));
 
@@ -395,16 +413,38 @@ async function main() {
 	// Create a new order and server-generated reference
 	app.post('/api/subscribe/start', async (req, reply) => {
 		try {
-			const { email, plan, language, level, native } = req.body || {};
+			const { email, plan, language, level, native, chain } = req.body || {};
 			const normEmail = normalizeEmail(email);
 			if (!isValidEmail(normEmail)) return reply.code(400).send({ error: 'valid email required' });
 			const planKey = (plan || 'month').toString();
 			const PLANS = { month: 2, year: 12 };
 			if (!PLANS[planKey]) return reply.code(400).send({ error: 'invalid plan' });
-			const ref = Keypair.generate().publicKey.toBase58();
+			
+			// Generate reference based on chain type
+			let ref;
+			if (chain && ['base', 'arbitrum'].includes(chain)) {
+				// For ETH L2 chains, use a hex reference (32 bytes)
+				ref = '0x' + require('crypto').randomBytes(32).toString('hex');
+			} else {
+				// For Solana, use PublicKey format
+				ref = Keypair.generate().publicKey.toBase58();
+			}
+			
 			const orderId = 'ord_' + Math.random().toString(36).slice(2, 10);
 			const store = loadOrders();
-			store.orders.push({ orderId, reference: ref, status: 'pending', createdAt: Date.now(), email: normEmail, plan: planKey, amount: PLANS[planKey], language: (language || process.env.TARGET_LANGUAGE || DEFAULT_TARGET_LANGUAGE).toString(), level: (level || 'B1').toString(), native: (native || DEFAULT_SOURCE_LANGUAGE).toString() });
+			store.orders.push({ 
+				orderId, 
+				reference: ref, 
+				status: 'pending', 
+				createdAt: Date.now(), 
+				email: normEmail, 
+				plan: planKey, 
+				amount: PLANS[planKey], 
+				language: (language || process.env.TARGET_LANGUAGE || DEFAULT_TARGET_LANGUAGE).toString(), 
+				level: (level || 'B1').toString(), 
+				native: (native || DEFAULT_SOURCE_LANGUAGE).toString(),
+				chain: chain || 'solana'
+			});
 			saveOrders(store);
 			return { orderId, reference: ref, amount: PLANS[planKey] };
 		} catch (e) {
@@ -489,6 +529,135 @@ async function main() {
 			}
 			return { paid, signature: found ? found.signature : null, updated };
 		} catch (e) {
+			return reply.code(500).send({ error: e.message || String(e) });
+		}
+	});
+
+	// ETH payment verification (Ethereum, Base, Arbitrum)
+	app.get('/api/eth/payments/status', async (req, reply) => {
+		try {
+			const { reference, chain } = req.query;
+			if (!reference) return reply.code(400).send({ error: 'reference required' });
+			if (!chain || !['base', 'arbitrum'].includes(chain)) {
+				return reply.code(400).send({ error: 'valid chain required (base or arbitrum)' });
+			}
+
+			// Get RPC URL based on chain
+			const rpcUrls = {
+				base: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+				arbitrum: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc'
+			};
+
+			// Get USDC contract address based on chain
+			const usdcAddresses = {
+				base: process.env.USDC_BASE || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+				arbitrum: process.env.USDC_ARBITRUM || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'
+			};
+
+			const provider = new ethers.JsonRpcProvider(rpcUrls[chain]);
+			const merchantAddress = process.env.ETH_MERCHANT_ADDRESS;
+			
+			if (!merchantAddress) {
+				return reply.code(500).send({ error: 'Merchant address not configured' });
+			}
+
+			// USDC Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
+			const transferTopic = ethers.id('Transfer(address,address,uint256)');
+			const toAddressTopic = ethers.zeroPadValue(merchantAddress.toLowerCase(), 32);
+
+			// Search for Transfer events to merchant address with reference in tx input data
+			const latestBlock = await provider.getBlockNumber();
+			const fromBlock = Math.max(0, latestBlock - 1000); // Search last ~1000 blocks
+
+			const logs = await provider.getLogs({
+				address: usdcAddresses[chain],
+				topics: [transferTopic, null, toAddressTopic],
+				fromBlock,
+				toBlock: 'latest'
+			});
+
+			let found = null;
+			let paid = false;
+
+			// Check each log for our reference in the transaction input data
+			for (const log of logs) {
+				const tx = await provider.getTransaction(log.transactionHash);
+				if (tx && tx.data && tx.data.toLowerCase().includes(reference.slice(2).toLowerCase())) {
+					// Parse the transfer amount from log data
+					const amount = ethers.toBigInt(log.data);
+					// USDC has 6 decimals
+					const amountInUsdc = Number(amount) / 1e6;
+					
+					found = {
+						transactionHash: log.transactionHash,
+						amount: amountInUsdc,
+						blockNumber: log.blockNumber
+					};
+					paid = true;
+					break;
+				}
+			}
+
+			let updated = false;
+			if (paid) {
+				const store = loadOrders();
+				const order = store.orders.find(o => o.reference === reference);
+				if (order && order.status !== 'paid') {
+					order.status = 'paid';
+					order.paidAt = Date.now();
+					order.transactionHash = found.transactionHash;
+					saveOrders(store);
+					
+					const subStore = loadSubscribers();
+					const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+					const now = Date.now();
+					const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+					
+					if (idx >= 0) {
+						const current = subStore.subscribers[idx];
+						const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
+						const newExpires = base + durationMs;
+						current.isSubscribed = true;
+						current.expiresAt = newExpires;
+						current.language = order.language || current.language;
+						current.native = order.native || current.native;
+						current.level = order.level || current.level || 'B1';
+						current.updatedAt = now;
+					} else {
+						const expiresAt = now + durationMs;
+						subStore.subscribers.push({ 
+							email: order.email, 
+							language: order.language, 
+							native: order.native || '', 
+							level: order.level || 'B1', 
+							isSubscribed: true, 
+							createdAt: now, 
+							updatedAt: now, 
+							expiresAt 
+						});
+					}
+					saveSubscribers(subStore);
+					updated = true;
+
+					// Send welcome email
+					try {
+						const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
+						const source = process.env.SOURCE_LANGUAGE || DEFAULT_SOURCE_LANGUAGE;
+						const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
+						const lvl = (user && user.level) || order.level || 'B1';
+						const sentence = await generateSentence(source, lang, lvl);
+						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 66878 : 65685));
+						const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+						await sendEmailWithTemplate(order.email, templateId, sentence, subject);
+					} catch (e) {
+						req.log.error(e);
+					}
+				}
+			}
+
+			return { paid, transactionHash: found ? found.transactionHash : null, updated };
+		} catch (e) {
+			req.log.error('ETH payment verification error:', e);
 			return reply.code(500).send({ error: e.message || String(e) });
 		}
 	});

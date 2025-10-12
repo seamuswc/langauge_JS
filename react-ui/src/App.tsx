@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as solanaWeb3 from '@solana/web3.js';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -7,7 +7,6 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 function App() {
   const [sentence, setSentence] = useState<any>(null);
   const [sentenceLoading, setSentenceLoading] = useState<boolean>(true);
-  const [reference, setReference] = useState<string>('');
   const [email, setEmail] = useState('');
   const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'>('english');
   const [plan, setPlan] = useState<'month'|'year'>('month');
@@ -16,7 +15,6 @@ function App() {
   const native = language === 'english' ? 'japanese' : language === 'japanese' ? 'english' : 'english';
   const isEnglish = targetLang === 'english';
   const isThai = targetLang === 'thai';
-  const [payUrl, setPayUrl] = useState<string>('');
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [solanaPaid, setSolanaPaid] = useState<boolean>(false);
@@ -51,15 +49,11 @@ function App() {
   // If user changes plan, clear any existing QR and re-enable subscribe
   useEffect(() => {
     setSolanaPaid(false);
-    setReference('');
-    setPayUrl('');
   }, [plan]);
 
   // If user changes email/language/level, also clear prior QR and re-enable
   useEffect(() => {
     setSolanaPaid(false);
-    setReference('');
-    setPayUrl('');
   }, [email, language, level]);
 
   const detectPhantom = () => {
@@ -82,10 +76,8 @@ function App() {
     try {
       const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
       if (!start?.reference) throw new Error(start?.error||'Failed to start');
-      setReference(start.reference);
       const params = new URLSearchParams({ amount: String(start.amount), 'spl-token': USDC_MINT, reference: start.reference, label: 'Subscription Payment', message: 'Thank you!' });
       const url = `solana:${recipient}?${params.toString()}`;
-      setPayUrl(url);
 
       // Try Phantom wallet first (desktop)
       const provider = detectPhantom();
@@ -121,8 +113,6 @@ function App() {
             if (j && j.paid) {
               setSolanaPaid(true);
               setShowQR(false);
-              setReference('');
-              setPayUrl('');
               alert('支払いが確認されました！登録が完了しました。');
               return;
             }
@@ -130,15 +120,11 @@ function App() {
         }
         // Timeout - close QR and notify user
         setShowQR(false);
-        setReference('');
-        setPayUrl('');
         alert('支払い確認がタイムアウトしました。\n\n支払いが完了している場合は数分お待ちください。完了していない場合は、もう一度お試しください。');
       })();
 
     } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
   };
-
-
 
   const stripWordClassInBreakdown = (value?: string): string | undefined => {
     if (!value) return value;

@@ -12,13 +12,18 @@ Meaning: [japanese]
 Constraints:
 - Use natural, adult-relevant English matching the specified level.
 - One item per line in Word Breakdown: word（品詞）（簡単な日本語の意味）
-- One item per line in Grammar; only a single "Grammar:" heading.
+- Grammar section should focus on sentence-level structures and usage patterns, not individual words:
+  * Explain the main grammatical structure or tense used (e.g., 現在完了形, 受動態, 関係代名詞)
+  * Describe how/when/why this structure is used (e.g., 「～している状態が現在も続く」)
+  * Keep explanations concise but clear - 2-3 key points maximum
+  * Use「／」to separate multiple grammar points
+  * Avoid breaking down individual phrases unless they're part of a larger grammar pattern
 - **IMPORTANT: All explanations (Word Breakdown and Grammar) must be written in JAPANESE, since the learners are Japanese speakers.**
 - No extra commentary or questions.
 
 Example:
-English: It’s a beautiful day today.
+English: It's a beautiful day today.
 読み方: イッツ・ア・ビューティフル・デイ・トゥデイ
-Word Breakdown: It’s（主語+be動詞の短縮形）（それは～です） + a（不定冠詞）（ひとつの） + beautiful（形容詞）（美しい） + day（名詞）（日） + today（副詞）（今日）
-Grammar: It’s = It is の短縮形／形容詞 + 名詞 の基本語順
+Word Breakdown: It's（主語+be動詞の短縮形）（それは～です） + a（不定冠詞）（ひとつの） + beautiful（形容詞）（美しい） + day（名詞）（日） + today（副詞）（今日）
+Grammar: be動詞の短縮形（It's = It is）：日常会話でよく使われる／形容詞 + 名詞の語順：英語の基本構造
 Meaning: 今日は素晴らしい一日だ。
