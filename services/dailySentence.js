@@ -67,6 +67,7 @@ function getPrompt(source, target, level) {
         "Constraints:\n" +
         "- Use natural, adult-relevant language.\n" +
         "- One item per line in Word Breakdown and Grammar.\n" +
+        "- **IMPORTANT: All explanations (Word Breakdown and Grammar) must be written in JAPANESE.**\n" +
         "- Only a single 'Grammar:' heading. No extra commentary.\n"
     );
 }
@@ -90,7 +91,8 @@ function parseResponse(data, source, target) {
         const m = cleaned.match(/^English:\s*(.*?)\n読み方:\s*(.*?)\nWord Breakdown:\s*(.*?)\nGrammar:\s*(.*?)\nMeaning:\s*(.*)/s);
         if (m) {
             return {
-                kanji: m[1],
+                english: m[1],        // Use 'english' field name for clarity
+                kanji: m[1],          // Keep for backwards compatibility
                 hiragana: m[2],
                 romaji: '',
                 breakdown: normalizeMultiline((m[3] || '').trim()),
@@ -131,6 +133,18 @@ function parseResponse(data, source, target) {
 }
 
 function getFallbackSentence(source, target) {
+    const t = String(target || '').toLowerCase();
+    if (t === 'english') {
+        return {
+            english: 'It is a beautiful day today.',
+            kanji: 'It is a beautiful day today.',
+            hiragana: 'イット・イズ・ア・ビューティフル・デイ・トゥデイ',
+            romaji: '',
+            breakdown: 'It（主語）（それは） + is（be動詞）（～です） + a（冠詞）（ひとつの） + beautiful（形容詞）（美しい） + day（名詞）（日） + today（副詞）（今日）',
+            grammar: 'It is = 主語 + be動詞の基本形 / 形容詞 + 名詞 の語順',
+            meaning: '今日は素晴らしい一日です。'
+        };
+    }
     return {
         kanji: '今日は雨が降っています',
         hiragana: 'きょうは あめが ふっています',

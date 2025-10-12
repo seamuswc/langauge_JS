@@ -1,6 +1,44 @@
-# Language Learning App - Deployment Guide
+# Eigo.email - English Learning for Japanese Speakers
 
-## Quick Deployment
+Daily English sentences delivered via email. Deployment Guide for Ubuntu.
+
+## 🚀 Quick Deploy
+
+### Option 1: 🖥️ Deploy from your local machine (Fastest - Recommended!)
+
+Build on your fast local machine, deploy everything to a fresh server:
+
+```bash
+./deploy-local.sh root@your-server.com
+```
+
+✨ **What it does:**
+- Builds React frontend on your fast local machine (much faster than server!)
+- Creates deployment package
+- **Automatically copies your local .env file** (no manual editing needed!) 🔑
+- Copies files to server via SSH/rsync
+- Installs Node.js, PM2, Nginx on server
+- Configures SSL certificates for eigo.email
+- Starts all PM2 services
+- Shows you the live URL
+
+🎯 **Best for:** Initial deployment, fast builds, production deployments  
+⚡ **Zero manual configuration** - your API keys are deployed automatically!
+
+### Option 2: 🌐 Direct server deploy (slower build)
+
+SSH into your Ubuntu server and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seamuswc/langauge_JS/main/deploy.sh | bash
+```
+
+📦 Clones repo on server, builds there (slower), sets up everything automatically  
+⚠️ **Note:** Builds on server CPU - slower than local machine
+
+---
+
+## Alternative: Run from Local Clone
 
 To deploy the entire application with one command:
 
@@ -47,9 +85,9 @@ Then edit `.env` with your actual values:
 PORT=8787
 HOST=0.0.0.0
 
-# Language Settings
-SOURCE_LANGUAGE=english
-TARGET_LANGUAGE=japanese
+# Language Settings (defaults to English for Japanese learners)
+SOURCE_LANGUAGE=japanese
+TARGET_LANGUAGE=english
 
 # Solana Configuration
 SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
@@ -58,9 +96,9 @@ SOLANA_MERCHANT_ADDRESS=your_merchant_address_here
 # Tencent SES Email Service
 TENCENT_SES_SECRET_ID=your_tencent_secret_id
 TENCENT_SES_SECRET_KEY=your_tencent_secret_key
-TENCENT_SES_TEMPLATE_ID=your_default_template_id
-TENCENT_SES_TEMPLATE_ID_EN=your_english_template_id
-TENCENT_SES_TEMPLATE_ID_TH=your_thai_template_id
+TENCENT_SES_TEMPLATE_ID_EN=66878  # English template (primary for eigo.email)
+TENCENT_SES_TEMPLATE_ID=65685     # Japanese template
+TENCENT_SES_TEMPLATE_ID_TH=66672  # Thai template
 
 # DeepSeek AI API
 DEEPSEEK_API_KEY=your_deepseek_api_key

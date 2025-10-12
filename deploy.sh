@@ -5,6 +5,9 @@
 
 set -e  # Exit on any error
 
+# Git repository URL - change this if you fork the project
+GIT_REPO="https://github.com/seamuswc/langauge_JS.git"
+
 echo "🚀 Starting Language Learning App Deployment..."
 
 # Colors for output
@@ -30,6 +33,19 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# Check if we're in a git repository, if not clone it
+if [ ! -d ".git" ] && [ ! -f "package.json" ]; then
+    print_status "📥 No repository found. Cloning from $GIT_REPO..."
+    
+    # Create temporary directory for clone
+    TEMP_CLONE_DIR="/tmp/language-app-clone-$$"
+    git clone "$GIT_REPO" "$TEMP_CLONE_DIR"
+    
+    # Move into the cloned directory
+    cd "$TEMP_CLONE_DIR"
+    print_success "Repository cloned successfully"
+fi
 
 # Check if we're in the right directory
 if [ ! -f "package.json" ] || [ ! -f "server.js" ]; then
@@ -83,7 +99,7 @@ fi
 
 # Step 1: Setup proper web directory structure
 print_status "📁 Setting up web directory structure..."
-WEB_DIR="/var/www/language-app"
+WEB_DIR="/var/www/eigo-email"
 CURRENT_DIR=$(pwd)
 
 # Create web directory if it doesn't exist
@@ -221,11 +237,11 @@ NGINX_ENABLED="/etc/nginx/sites-enabled/language-app"
 # Get server IP for default configuration
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "your-server-ip")
 
-# Configure for both domains
+# Configure for eigo.email domain
 sudo tee $NGINX_CONFIG > /dev/null << EOF
 server {
     listen 80;
-    server_name nihongo.email eigo.email $SERVER_IP _;
+    server_name eigo.email www.eigo.email $SERVER_IP _;
     
     location / {
         proxy_pass http://localhost:8787;
@@ -241,7 +257,7 @@ EOF
 sudo ln -sf $NGINX_CONFIG $NGINX_ENABLED
 sudo nginx -t && sudo systemctl reload nginx
 
-print_success "Nginx configured for nihongo.email, eigo.email, and $SERVER_IP -> 8787"
+print_success "Nginx configured for eigo.email and $SERVER_IP -> 8787"
 
 # Setup firewall
 print_status "🔥 Configuring firewall..."
@@ -277,36 +293,31 @@ if ! command -v certbot &> /dev/null; then
     print_success "Certbot installed"
 fi
 
-# Setup SSL for both domains
-print_status "🔐 Setting up SSL certificates for nihongo.email and eigo.email..."
+# Setup SSL for eigo.email
+print_status "🔐 Setting up SSL certificate for eigo.email..."
 
-# Try to get SSL certificates
-print_status "🔐 Obtaining SSL certificates for both domains..."
-if sudo certbot certonly --standalone -d nihongo.email -d eigo.email --non-interactive --agree-tos --email admin@nihongo.email; then
+# Try to get SSL certificate
+print_status "🔐 Obtaining SSL certificate..."
+if sudo certbot certonly --standalone -d eigo.email -d www.eigo.email --non-interactive --agree-tos --email admin@eigo.email; then
     print_success "SSL certificates obtained successfully"
     
     # Update Nginx config with SSL
     sudo tee /etc/nginx/sites-available/language-app > /dev/null << EOF
 server {
     listen 80;
-    server_name nihongo.email eigo.email $SERVER_IP _;
+    server_name eigo.email www.eigo.email $SERVER_IP _;
     
-    location / {
-        proxy_pass http://localhost:8787;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
+    # Redirect HTTP to HTTPS
+    return 301 https://eigo.email\$request_uri;
 }
 
 server {
     listen 443 ssl;
     http2 on;
-    server_name nihongo.email eigo.email;
+    server_name eigo.email www.eigo.email;
     
-    ssl_certificate /etc/letsencrypt/live/nihongo.email/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/nihongo.email/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/eigo.email/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/eigo.email/privkey.pem;
     
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
@@ -328,12 +339,12 @@ EOF
     print_status "🔄 Setting up SSL auto-renewal..."
     (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
 
-    print_success "🔒 SSL certificates installed for both domains with auto-renewal configured"
-    SSL_URLS="https://nihongo.email and https://eigo.email"
+    print_success "🔒 SSL certificate installed with auto-renewal configured"
+    SSL_URLS="https://eigo.email"
 else
-    print_warning "SSL certificate setup failed - domains may not be pointing to this server yet"
+    print_warning "SSL certificate setup failed - domain may not be pointing to this server yet"
     print_warning "You can retry SSL setup later with:"
-    print_warning "  sudo certbot --nginx -d nihongo.email -d eigo.email"
+    print_warning "  sudo certbot --nginx -d eigo.email -d www.eigo.email"
     SSL_URLS=""
 fi
 
@@ -345,25 +356,23 @@ print_success "🌐 Your application is now accessible at:"
 echo ""
 echo "  🌍 http://$SERVER_IP"
 if [ "$SSL_URLS" != "" ]; then
-    echo "  🔒 https://nihongo.email (SSL enabled)"
     echo "  🔒 https://eigo.email (SSL enabled)"
-    echo "  🌍 http://nihongo.email (redirects to HTTPS)"
+    echo "  🔒 https://www.eigo.email (SSL enabled)"
     echo "  🌍 http://eigo.email (redirects to HTTPS)"
 else
-    echo "  🌍 http://nihongo.email (SSL will be enabled after DNS setup)"
     echo "  🌍 http://eigo.email (SSL will be enabled after DNS setup)"
 fi
 echo "  🌍 http://localhost:8787 (direct access)"
 echo ""
 if [ "$SSL_URLS" = "" ]; then
     echo "📋 To enable SSL:"
-    echo "  1. Point your domains to: $SERVER_IP"
-    echo "     - nihongo.email → $SERVER_IP"
+    echo "  1. Point your domain to: $SERVER_IP"
     echo "     - eigo.email → $SERVER_IP"
+    echo "     - www.eigo.email → $SERVER_IP"
     echo ""
     echo "  2. Wait 5-15 minutes for DNS propagation"
     echo ""
-    echo "  3. Then run: sudo certbot --nginx -d nihongo.email -d eigo.email"
+    echo "  3. Then run: sudo certbot --nginx -d eigo.email -d www.eigo.email"
     echo ""
 else
     echo "🎉 SSL is fully configured and working!"
@@ -427,8 +436,8 @@ print_success "Basic security configured"
 print_status "💾 Setting up backup system..."
 sudo tee /usr/local/bin/backup-language-app.sh > /dev/null << 'EOF'
 #!/bin/bash
-BACKUP_DIR="/var/backups/language-app"
-APP_DIR="/var/www/language-app"
+BACKUP_DIR="/var/backups/eigo-email"
+APP_DIR="/var/www/eigo-email"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p $BACKUP_DIR

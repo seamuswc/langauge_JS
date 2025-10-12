@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as solanaWeb3 from '@solana/web3.js';
+import { QRCodeSVG } from 'qrcode.react';
 
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
@@ -8,9 +9,9 @@ function App() {
   const [sentenceLoading, setSentenceLoading] = useState<boolean>(true);
   const [reference, setReference] = useState<string>('');
   const [email, setEmail] = useState('');
-  const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'>('japanese');
+  const [language, setLanguage] = useState<'japanese'|'english'|'thai_en'>('english');
   const [plan, setPlan] = useState<'month'|'year'>('month');
-  const [level, setLevel] = useState<string>('N3');
+  const [level, setLevel] = useState<string>('B1');
   const targetLang: 'japanese'|'english'|'thai' = language === 'thai_en' ? 'thai' : (language === 'english' ? 'english' : 'japanese');
   const native = language === 'english' ? 'japanese' : language === 'japanese' ? 'english' : 'english';
   const isEnglish = targetLang === 'english';
@@ -19,17 +20,12 @@ function App() {
   const [recipient, setRecipient] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [solanaPaid, setSolanaPaid] = useState<boolean>(false);
-  const [suiPaid, setSuiPaid] = useState<boolean>(false);
-  const [aptosPaid, setAptosPaid] = useState<boolean>(false);
-  // QR removed; keep noop state removed
-  const [suiConfig, setSuiConfig] = useState<{ merchant: string; usdcCoinType: string } | null>(null);
-  const [aptosConfig, setAptosConfig] = useState<{ merchant: string; usdcCoinType: string } | null>(null);
+  const [showQR, setShowQR] = useState(false);
+  const [qrData, setQrData] = useState('');
 
   useEffect(() => {
     fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{ 
       if (cfg?.recipient) setRecipient(cfg.recipient);
-      if (cfg?.sui) setSuiConfig({ merchant: cfg.sui.merchant || '', usdcCoinType: cfg.sui.usdcCoinType || '' });
-      if (cfg?.aptos) setAptosConfig({ merchant: cfg.aptos.merchant || '', usdcCoinType: cfg.aptos.usdcCoinType || '' });
     }).catch(err => console.error('Config fetch error:', err));
     
     setSentenceLoading(true);
@@ -40,25 +36,14 @@ function App() {
       .finally(()=>setSentenceLoading(false));
   }, [level, targetLang, native]);
 
-  // Reset default level when language changes
-  // Run language auto-detection only once on first load
-  const initialLangSet = useRef(false);
-  useEffect(() => {
-    if (initialLangSet.current) return;
-    initialLangSet.current = true;
-    try {
-      const langs = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) as string[];
-      const primary = (langs && langs[0] ? String(langs[0]) : '').toLowerCase();
-      if (primary.startsWith('ja')) setLanguage('english');
-      else if (primary.startsWith('en')) setLanguage('japanese');
-    } catch {}
-  }, []);
+  // Default is English for Japanese learners
+  // Auto-detection removed - site is specifically for Japanese learners
 
   // Adjust default level whenever target language group changes
   useEffect(() => {
     if (isEnglish) setLevel('B1');
     else if (isThai) setLevel('Intermediate');
-    else setLevel('N3');
+    else setLevel('B1'); // Default to B1 for English
   }, [isEnglish, isThai]);
 
   // (QR deep link only)
@@ -66,8 +51,6 @@ function App() {
   // If user changes plan, clear any existing QR and re-enable subscribe
   useEffect(() => {
     setSolanaPaid(false);
-    setSuiPaid(false);
-    setAptosPaid(false);
     setReference('');
     setPayUrl('');
   }, [plan]);
@@ -75,19 +58,9 @@ function App() {
   // If user changes email/language/level, also clear prior QR and re-enable
   useEffect(() => {
     setSolanaPaid(false);
-    setSuiPaid(false);
-    setAptosPaid(false);
     setReference('');
     setPayUrl('');
   }, [email, language, level]);
-
-  // Clear Sui flow state when details change
-  useEffect(() => {
-  }, [email, language, level, plan]);
-
-  // Clear Aptos flow state when details change
-  useEffect(() => {
-  }, [email, language, level, plan]);
 
   const detectPhantom = () => {
     // Type-safe Phantom wallet detection
@@ -101,41 +74,9 @@ function App() {
     return null;
   };
 
-  const detectSuiWallet = () => {
-    // Type-safe Sui wallet detection
-    const windowWithSui = window as any;
-    if (windowWithSui.suiWallet) {
-      return windowWithSui.suiWallet;
-    }
-    if (windowWithSui.sui) {
-      return windowWithSui.sui;
-    }
-    if (windowWithSui.__suiWallet) {
-      return windowWithSui.__suiWallet;
-    }
-    return null;
-  };
-
-  const detectAptosWallet = () => {
-    // Type-safe Aptos wallet detection
-    const windowWithAptos = window as any;
-    if (windowWithAptos.aptos) {
-      return windowWithAptos.aptos;
-    }
-    if (windowWithAptos.petra) {
-      return windowWithAptos.petra;
-    }
-    if (windowWithAptos.martian) {
-      return windowWithAptos.martian;
-    }
-    if (windowWithAptos.rise) {
-      return windowWithAptos.rise;
-    }
-    return null;
-  };
 
   const onSubscribeSolana = async () => {
-    if (!email) { alert('Enter email'); return; }
+    if (!email) { alert('メールアドレスを入力してください'); return; }
     setSolanaPaid(false);
     setLoading(true);
     try {
@@ -146,25 +87,32 @@ function App() {
       const url = `solana:${recipient}?${params.toString()}`;
       setPayUrl(url);
 
-      // Attempt Phantom flow
+      // Try Phantom wallet first (desktop)
       const provider = detectPhantom();
       if (provider) {
-        await provider.connect();
-        const payerPk = provider.publicKey as solanaWeb3.PublicKey;
-        const resp = await fetch('/tx/usdc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payer: payerPk.toBase58(), recipient, amount: start.amount, reference: start.reference }) });
-        if (!resp.ok) throw new Error(await resp.text());
-        const { transaction } = await resp.json();
-        const txBuffer = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
-        const tx = solanaWeb3.Transaction.from(txBuffer);
-        await provider.signAndSendTransaction(tx);
+        try {
+          await provider.connect();
+          const payerPk = provider.publicKey as solanaWeb3.PublicKey;
+          const resp = await fetch('/tx/usdc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payer: payerPk.toBase58(), recipient, amount: start.amount, reference: start.reference }) });
+          if (!resp.ok) throw new Error(await resp.text());
+          const { transaction } = await resp.json();
+          const txBuffer = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
+          const tx = solanaWeb3.Transaction.from(txBuffer);
+          await provider.signAndSendTransaction(tx);
+        } catch (walletErr) {
+          // Phantom failed, show QR code
+          setQrData(url);
+          setShowQR(true);
+        }
       } else {
-        // Fallback: deep link to any registered Solana wallet (desktop or mobile)
-        try { if (url) window.location.href = url; } catch {}
+        // No Phantom detected, show QR code
+        setQrData(url);
+        setShowQR(true);
       }
 
       // Poll status
       (async function poll() {
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 60; i++) {
           await new Promise(r => setTimeout(r, 2000));
           try {
             const r = await fetch('/api/payments/status?reference=' + encodeURIComponent(start.reference));
@@ -172,10 +120,10 @@ function App() {
             const j = await r.json();
             if (j && j.paid) {
               setSolanaPaid(true);
-              // Hide QR and clear reference to prevent reusing same payment link
+              setShowQR(false);
               setReference('');
               setPayUrl('');
-              alert('Payment confirmed! Subscription activated.');
+              alert('支払いが確認されました！登録が完了しました。');
               return;
             }
           } catch {}
@@ -185,137 +133,6 @@ function App() {
     } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
   };
 
-  const onSubscribeSui = async () => {
-    if (!email) { alert('Enter email'); return; }
-    setSuiPaid(false);
-    setLoading(true);
-    try {
-      const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
-      if (!start?.reference) throw new Error(start?.error||'Failed to start');
-
-      // Try to auto-detect and use Sui wallet
-      const suiProvider = detectSuiWallet();
-      if (suiProvider && suiConfig && suiConfig.merchant) {
-        try {
-          // Connect to Sui wallet
-          await suiProvider.connect();
-          
-          // Try to create and sign transaction automatically
-          const amount = start.amount;
-          const recipient = suiConfig.merchant;
-          const coinType = suiConfig.usdcCoinType;
-          
-          if (coinType && suiProvider.signAndExecuteTransactionBlock) {
-            try {
-              // Create USDC transfer transaction
-              const txb = new suiProvider.TransactionBlock();
-              
-              // Split coins for the payment amount (in smallest units)
-              const amountUnits = Math.round(Number(amount) * 1_000_000); // 6 decimals for USDC
-              const [coin] = txb.splitCoins(txb.gas, [amountUnits]);
-              
-              // Transfer to recipient
-              txb.transferObjects([coin], recipient);
-              
-              // Sign and execute transaction
-              const result = await suiProvider.signAndExecuteTransactionBlock({
-                transactionBlock: txb,
-                options: {
-                  showEffects: true,
-                  showObjectChanges: true
-                }
-              });
-              
-              if (result && result.digest) {
-                // Transaction successful, verify payment
-                setSuiPaid(true);
-                return;
-              }
-            } catch (txError) {
-              console.error('Sui transaction error:', txError);
-              // Fall through to manual process
-            }
-          }
-          
-          // No manual fallback - just show error
-          alert('Sui wallet connected but transaction failed. Please try again or use Solana payment.');
-        } catch (walletError) {
-          console.error('Sui wallet error:', walletError);
-          alert('Sui wallet connection failed. Please install a Sui wallet or use Solana payment.');
-        }
-      } else {
-        // No manual fallback - just show error
-        if (!suiConfig || !suiConfig.merchant) {
-          alert('Sui not configured. Please contact support or use Solana payment.');
-        } else {
-          alert('Please install a Sui wallet to continue or use Solana payment.');
-        }
-      }
-    } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
-  };
-
-  const onSubscribeAptos = async () => {
-    if (!email) { alert('Enter email'); return; }
-    setAptosPaid(false);
-    setLoading(true);
-    try {
-      const start = await fetch('/api/subscribe/start',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, language: targetLang, plan, level, native })}).then(r=>r.json());
-      if (!start?.reference) throw new Error(start?.error||'Failed to start');
-
-      // Try to auto-detect and use Aptos wallet
-      const aptosProvider = detectAptosWallet();
-      if (aptosProvider && aptosConfig && aptosConfig.merchant) {
-        try {
-          // Connect to Aptos wallet
-          await aptosProvider.connect();
-          
-          // Try to create and sign transaction automatically
-          const amount = start.amount;
-          const recipient = aptosConfig.merchant;
-          const coinType = aptosConfig.usdcCoinType;
-          
-          if (coinType && aptosProvider.signAndSubmitTransaction) {
-            try {
-              // Create USDC transfer transaction
-              const amountUnits = Math.round(Number(amount) * 1_000_000); // 6 decimals for USDC
-              
-              const transaction = {
-                type: "entry_function_payload",
-                function: "0x1::coin::transfer",
-                arguments: [recipient, amountUnits],
-                type_arguments: [coinType]
-              };
-              
-              // Sign and execute transaction
-              const result = await aptosProvider.signAndSubmitTransaction(transaction);
-              
-              if (result && result.hash) {
-                // Transaction successful, verify payment
-                setAptosPaid(true);
-                return;
-              }
-            } catch (txError) {
-              console.error('Aptos transaction error:', txError);
-              // Fall through to manual process
-            }
-          }
-          
-          // No manual fallback - just show error
-          alert('Aptos wallet connected but transaction failed. Please try again or use Solana payment.');
-        } catch (walletError) {
-          console.error('Aptos wallet error:', walletError);
-          alert('Aptos wallet connection failed. Please install an Aptos wallet or use Solana payment.');
-        }
-      } else {
-        // No manual fallback - just show error
-        if (!aptosConfig || !aptosConfig.merchant) {
-          alert('Aptos not configured. Please contact support or use Solana payment.');
-        } else {
-          alert('Please install an Aptos wallet to continue or use Solana payment.');
-        }
-      }
-    } catch(e:any){ alert(e?.message||String(e)); } finally { setLoading(false); }
-  };
 
 
   const stripWordClassInBreakdown = (value?: string): string | undefined => {
@@ -355,31 +172,30 @@ function App() {
 
   return (
     <div style={{maxWidth:560, margin:'3vh auto', padding:24, textAlign:'center'}}>
-      <h1 style={{textAlign:'center'}}>Subscribe for Daily Sentences</h1>
+      <h1 style={{textAlign:'center', color:'#1a1a1a'}}>毎日英語を学ぶ</h1>
       <div className="stack" style={{margin:'12px 0 16px'}}>
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@example.com' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}/>
-        <select value={language} onChange={e=>setLanguage(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
-          <option value='japanese'>Japanese</option>
-          <option value='english'>英語</option>
-          <option value='thai_en'>Thai</option>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='メールアドレス (email@example.com)' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}/>
+        {/* Language selector - English only */}
+        <select value={language} onChange={e=>setLanguage(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
+          <option value='english'>English (英語)</option>
         </select>
         {isEnglish ? (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
-            <option value='A1'>A1</option>
-            <option value='A2'>A2</option>
-            <option value='B1'>B1</option>
-            <option value='B2'>B2</option>
-            <option value='C1'>C1</option>
-            <option value='C2'>C2</option>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
+            <option value='A1'>A1 (初級)</option>
+            <option value='A2'>A2 (初中級)</option>
+            <option value='B1'>B1 (中級)</option>
+            <option value='B2'>B2 (中上級)</option>
+            <option value='C1'>C1 (上級)</option>
+            <option value='C2'>C2 (最上級)</option>
           </select>
         ) : isThai ? (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
             <option value='Beginner'>Beginner</option>
             <option value='Intermediate'>Intermediate</option>
             <option value='Advanced'>Advanced</option>
           </select>
         ) : (
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
+          <select value={level} onChange={e=>setLevel(e.target.value)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
             <option value='N5'>JLPT N5</option>
             <option value='N4'>JLPT N4</option>
             <option value='N3'>JLPT N3</option>
@@ -387,50 +203,65 @@ function App() {
             <option value='N1'>JLPT N1</option>
           </select>
         )}
-        <select value={plan} onChange={e=>setPlan(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #333', background:'#111', color:'#eee'}}>
-          <option value='month'>1 month — 2 USDC</option>
-          <option value='year'>1 year — 12 USDC</option>
+        <select value={plan} onChange={e=>setPlan(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
+          <option value='month'>1ヶ月 — 2 USDC</option>
+          <option value='year'>1年 — 12 USDC</option>
         </select>
       </div>
       <div style={{display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:16}}>
         <button onClick={onSubscribeSolana} disabled={loading || solanaPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #7c3aed, #6ee7b7)', boxShadow:'0 10px 20px rgba(124,58,237,0.35)'}}>
-          {solanaPaid ? 'Subscribed' : (loading? 'Opening wallet…' : 'Subscribe with Solana')}
-        </button>
-        <button onClick={onSubscribeSui} disabled={loading || suiPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #06b6d4, #a7f3d0)', boxShadow:'0 10px 20px rgba(6,182,212,0.35)'}}>
-          {suiPaid ? 'Subscribed' : 'Subscribe with Sui'}
-        </button>
-        <button onClick={onSubscribeAptos} disabled={loading || aptosPaid} style={{padding:'12px 18px', fontSize:16, fontWeight:700, borderRadius:10, color:'#0b0e14', background:'linear-gradient(135deg, #3b82f6, #8b5cf6)', boxShadow:'0 10px 20px rgba(59,130,246,0.35)'}}>
-          {aptosPaid ? 'Subscribed' : 'Subscribe with Aptos'}
+          {solanaPaid ? '登録完了' : (loading? 'ウォレットを開いています…' : 'Solanaで登録')}
         </button>
       </div>
-      {reference && payUrl && (
-        <div style={{textAlign:'center', margin:'10px 0'}}>
-          <a href={payUrl} style={{display:'inline-block', padding:'10px 14px', borderRadius:8, background:'#222', color:'#fff', textDecoration:'none'}}>Open payment in wallet</a>
-          <div style={{marginTop:8, fontSize:12, opacity:0.8}}>If the wallet doesn't open, you need to install a Solana wallet like Phantom.</div>
+      {showQR && qrData && (
+        <div onClick={() => setShowQR(false)} style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.8)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999}}>
+          <div onClick={(e) => e.stopPropagation()} style={{background:'#fff', padding:40, borderRadius:16, textAlign:'center', maxWidth:400}}>
+            <h2 style={{marginTop:0, marginBottom:20, color:'#333'}}>QRコードをスキャン</h2>
+            <QRCodeSVG value={qrData} size={256} level="H" style={{border:'10px solid #fff', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
+            <p style={{marginTop:20, marginBottom:10, fontSize:14, color:'#666'}}>モバイルウォレットでスキャンしてください</p>
+            <button onClick={() => setShowQR(false)} style={{marginTop:10, padding:'12px 24px', fontSize:16, borderRadius:8, border:'none', background:'#666', color:'#fff', cursor:'pointer'}}>閉じる</button>
+          </div>
         </div>
       )}
 
-      <hr style={{margin:'16px 0'}}/>
+      <hr style={{margin:'16px 0', border:'none', borderTop:'1px solid #ddd'}}/>
       {sentenceLoading ? (
-        <div style={{display:'flex', alignItems:'center', gap:12}}>
+        <div style={{display:'flex', alignItems:'center', gap:12, justifyContent:'center'}}>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-          <div style={{width:18,height:18,border:'3px solid #999',borderTopColor:'#7c3aed',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
-          <div>Loading sentence…</div>
+          <div style={{width:18,height:18,border:'3px solid #ccc',borderTopColor:'#7c3aed',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+          <div style={{color:'#1a1a1a'}}>読み込み中…</div>
         </div>
       ) : (
         <div>
           {isEnglish ? (
             <>
-              {sentence?.kanji && <Lines label='English' text={sentence.kanji}/>}
-              {sentence?.hiragana && <Lines label='Reading' text={sentence.hiragana}/>}
-              <div style={{height:16}}/>
-              {sentence?.breakdown && <div style={{marginTop:12}}><strong>Word Breakdown:</strong></div>}
-              {sentence?.breakdown && <Lines label='' text={stripWordClassInBreakdown(sentence.breakdown)}/>}
-              <div style={{height:16}}/>
-              {sentence?.grammar && <div style={{marginTop:12}}><strong>Grammar:</strong></div>}
-              {sentence?.grammar && <Lines label='' text={sentence.grammar}/>}
-              <div style={{height:16}}/>
-              {(sentence?.meaning || sentence?.english) && <Lines label='Japanese' text={sentence.meaning || sentence.english}/>}
+              {(sentence?.english || sentence?.kanji) && (
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:18, fontWeight:600, color:'#4A90E2', marginBottom:12}}>English (英語)</div>
+                  <div style={{fontSize:17, lineHeight:'1.8', color:'#1a1a1a'}}>{sentence?.english || sentence?.kanji}</div>
+                </div>
+              )}
+              
+              {sentence?.breakdown && (
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:18, fontWeight:600, color:'#4A90E2', marginBottom:12}}>語彙分解 (Word Breakdown)</div>
+                  <div style={{fontSize:17, lineHeight:'1.8', color:'#1a1a1a', whiteSpace:'pre-line'}}>{stripWordClassInBreakdown(sentence.breakdown)}</div>
+                </div>
+              )}
+              
+              {sentence?.grammar && (
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:18, fontWeight:600, color:'#4A90E2', marginBottom:12}}>文法説明 (Grammar)</div>
+                  <div style={{fontSize:17, lineHeight:'1.8', color:'#1a1a1a', whiteSpace:'pre-line'}}>{sentence.grammar}</div>
+                </div>
+              )}
+              
+              {sentence?.meaning && (
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:18, fontWeight:600, color:'#4A90E2', marginBottom:12}}>日本語訳 (Translation)</div>
+                  <div style={{fontSize:17, lineHeight:'1.8', color:'#1a1a1a'}}>{sentence.meaning}</div>
+                </div>
+              )}
             </>
           ) : isThai ? (
             <>
@@ -456,16 +287,19 @@ function App() {
             </>
           ) : (
             <>
-              {sentence?.kanji && <Lines label='漢字' text={sentence.kanji}/>}
-              {sentence?.hiragana && <Lines label='ひらがな' text={sentence.hiragana}/>}
-              {sentence?.romaji && <Lines label='Romaji' text={sentence.romaji}/>}
-              <div style={{height:16}}/>
-              {(sentence?.meaning || sentence?.english) && <Lines label='English' text={sentence.meaning || sentence.english}/>}
-              <div style={{height:16}}/>
-              {sentence?.breakdown && <div style={{marginTop:12}}><strong>Breakdown:</strong></div>}
+              <div style={{background:'linear-gradient(to bottom, #fff5f8, #fff)', padding:20, borderRadius:10, marginBottom:20, borderLeft:'4px solid #E91E63'}}>
+                {sentence?.kanji && <div style={{marginBottom:12}}><strong style={{color:'#E91E63'}}>漢字:</strong> <span style={{fontSize:20, fontWeight:500}}>{sentence.kanji}</span></div>}
+                {sentence?.hiragana && <div style={{marginBottom:12}}><strong style={{color:'#E91E63'}}>ひらがな:</strong> {sentence.hiragana}</div>}
+                {sentence?.romaji && <div><strong style={{color:'#E91E63'}}>Romaji:</strong> {sentence.romaji}</div>}
+              </div>
+              
+              {(sentence?.meaning || sentence?.english) && <div style={{marginBottom:8}}><strong style={{fontSize:18, color:'#E91E63'}}>English</strong></div>}
+              {(sentence?.meaning || sentence?.english) && <div style={{fontSize:16, marginBottom:20}}>{sentence.meaning || sentence.english}</div>}
+              
+              {sentence?.breakdown && <div style={{marginTop:24, marginBottom:8}}><strong style={{fontSize:18, color:'#E91E63'}}>Breakdown</strong></div>}
               {sentence?.breakdown && <Lines label='' text={stripWordClassInBreakdown(sentence.breakdown)}/>}
-              <div style={{height:16}}/>
-              {sentence?.grammar && <div style={{marginTop:12}}><strong>Grammar:</strong></div>}
+              
+              {sentence?.grammar && <div style={{marginTop:24, marginBottom:8}}><strong style={{fontSize:18, color:'#E91E63'}}>Grammar</strong></div>}
               {sentence?.grammar && <Lines label='' text={sentence.grammar}/>}
             </>
           )}

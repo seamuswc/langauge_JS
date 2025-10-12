@@ -13,6 +13,7 @@ Constraints:
 - Use natural, adult-relevant English matching the specified level.
 - One item per line in Word Breakdown: word（品詞）（簡単な日本語の意味）
 - One item per line in Grammar; only a single "Grammar:" heading.
+- **IMPORTANT: All explanations (Word Breakdown and Grammar) must be written in JAPANESE, since the learners are Japanese speakers.**
 - No extra commentary or questions.
 
 Example:

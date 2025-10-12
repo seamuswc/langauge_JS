@@ -44,7 +44,7 @@ function parseArgs(argv) {
         };
         subject = '今日の日本語 ' + new Date().toLocaleDateString('en-US');
     } else {
-        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_EN || 65687);
+        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_EN || 66878);
         const sentence = {
             english: 'It’s a beautiful day today.',
             katakana: 'イッツ・ア・ビューティフル・デイ・トゥデイ',

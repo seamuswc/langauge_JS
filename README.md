@@ -1,6 +1,35 @@
-## Daily Sentence — Deployment Guide (Ubuntu)
+## Eigo.email — English Learning for Japanese Speakers
 
-Fastify (Node.js) API serving a React (Vite) frontend.
+Daily English sentences delivered via email. Fastify (Node.js) API serving a React (Vite) frontend.
+
+## 🚀 Quick Deploy
+
+### Option 1: 🖥️ Deploy from your local machine (Fastest - Recommended!)
+
+Build on your fast local machine, deploy everything to a fresh server:
+
+```bash
+./deploy-local.sh root@your-server.com
+```
+
+✨ **Builds locally (much faster!) + automatically copies your .env file + handles complete server setup + SSL + deployment**  
+🎯 **Best for initial deployment - no manual editing needed!**  
+🔑 **Your local .env file is automatically deployed to the server**
+
+### Option 2: 🌐 Direct server deploy (slower build)
+
+SSH into your Ubuntu server and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seamuswc/langauge_JS/main/deploy.sh | bash
+```
+
+📦 Clones repo, installs everything, builds on server, configures Nginx, sets up SSL for eigo.email  
+⚠️ **Slower - builds on server instead of locally**
+
+---
+
+## Manual Deployment
 
 ### Requirements
 - Ubuntu with sudo
@@ -26,18 +55,18 @@ sudo ufw enable
 
 ### 3) Get the code
 ```bash
-sudo mkdir -p /var/www/nihongo-email
-cd /var/www/nihongo-email
+sudo mkdir -p /var/www/eigo-email
+cd /var/www/eigo-email
 git clone https://github.com/seamuswc/langauge_JS.git .
 ```
 
 ### 4) Environment
-Run from: `/var/www/nihongo-email`
+Run from: `/var/www/eigo-email`
 
 Create a `.env` file in the project root with your keys and settings.
 
 ### 5) Install and build
-Run from: `/var/www/nihongo-email`
+Run from: `/var/www/eigo-email`
 ```bash
 npm ci || npm install
 npm run build
@@ -57,10 +86,10 @@ npm run deploy
 
 ### 6) Nginx reverse proxy (HTTP)
 ```bash
-sudo tee /etc/nginx/sites-available/nihongo-email >/dev/null <<'NGINX'
+sudo tee /etc/nginx/sites-available/eigo-email >/dev/null <<'NGINX'
 server {
   listen 80;
-  server_name nihongo.email;
+  server_name eigo.email www.eigo.email;
   location / {
     proxy_pass http://127.0.0.1:8787;
     proxy_set_header Host $host;
@@ -69,20 +98,20 @@ server {
   }
 }
 NGINX
-sudo ln -s /etc/nginx/sites-available/nihongo-email /etc/nginx/sites-enabled/nihongo-email
+sudo ln -s /etc/nginx/sites-available/eigo-email /etc/nginx/sites-enabled/eigo-email
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 7) HTTPS with Let’s Encrypt
+### 7) HTTPS with Let's Encrypt
 ```bash
 sudo snap install core && sudo snap refresh core
 sudo snap install --classic certbot
 sudo ln -sf /snap/bin/certbot /usr/bin/certbot
-sudo certbot --nginx -d nihongo.email
+sudo certbot --nginx -d eigo.email -d www.eigo.email
 ```
 
 ### 8) Start the main application with PM2
-Run from: `/var/www/nihongo-email`
+Run from: `/var/www/eigo-email`
 ```bash
 # Start the main application
 pm2 start server.js --name "language-app" --watch
@@ -102,7 +131,7 @@ pm2 status && pm2 logs language-app --lines 50
 ```
 
 ### 9) Deploy Updates
-Run from: `/var/www/nihongo-email`
+Run from: `/var/www/eigo-email`
 ```bash
 # Pull latest code and deploy
 git pull
@@ -126,11 +155,22 @@ pm2 restart language-app
 
 #### Email Templates
 The system uses different email templates for different languages:
-- **Japanese Template**: `TENCENT_SES_TEMPLATE_ID` (default: 65685) - for Japanese sentences
-- **English Template**: `TENCENT_SES_TEMPLATE_ID_EN` (default: 65687) - for English sentences  
-- **Thai Template**: `TENCENT_SES_TEMPLATE_ID_TH` (default: 66672) - for Thai sentences (English interface)
+- **English Template** (primary): `TENCENT_SES_TEMPLATE_ID_EN` (default: 66878) - Japanese learners studying English
+- **Japanese Template**: `TENCENT_SES_TEMPLATE_ID` (default: 65685) - English speakers learning Japanese
+- **Thai Template**: `TENCENT_SES_TEMPLATE_ID_TH` (default: 66672) - Thai language learning
 
-Template files are available in `email-templates/` directory for reference.
+Template files available in `email-templates/` directory:
+- `japanese-english.html` - For Japanese learners (main template for eigo.email) ✨
+- `english-japanese.html` - For English learners
+- `thai-english.html` - For Thai learners
+- `thai-japanese.html` - For Thai learners (Japanese interface)
+
+### Default Language Settings
+
+The site defaults to **English learning for Japanese speakers**:
+- Target language: English (CEFR levels A1-C2)
+- Native language: Japanese
+- Can be overridden via environment variables: `TARGET_LANGUAGE=english` and `SOURCE_LANGUAGE=japanese`
 
 ### Payment Configuration
 
@@ -138,14 +178,6 @@ Template files are available in `email-templates/` directory for reference.
 - Uses default merchant address: `8zS5w8MHSDQ4Pc12DZRLYQ78hgEwnBemVJMrfjUN6xXj`
 - Optional env: `SOLANA_MERCHANT_ADDRESS`, `SOLANA_RPC_URL`
 - Integrates with Phantom wallet automatically
-
-#### Sui Payments (Optional - Requires configuration)
-To enable Sui payments, add these environment variables:
-```bash
-SUI_MERCHANT_ADDRESS=0x...  # Your Sui merchant address
-SUI_USDC_COIN_TYPE=0x...::usdc::USDC  # Sui USDC coin type
-SUI_RPC_URL=https://fullnode.mainnet.sui.io  # Optional, has default
-```
 
 #### Aptos Payments (Optional - Requires configuration)
 To enable Aptos payments, add these environment variables:
@@ -155,7 +187,7 @@ APTOS_USDC_COIN_TYPE=0x...::usdc::USDC  # Aptos USDC coin type
 APTOS_RPC_URL=https://fullnode.mainnet.aptoslabs.com  # Optional, has default
 ```
 
-**Note**: Without Sui/Aptos configuration, the buttons will still work but show a "not configured" message. Users can still use Solana payments.
+**Note**: Without Aptos configuration, the button will still work but show a "not configured" message. Users can still use Solana payments.
 
 ### PM2 Process Management
 
@@ -187,7 +219,7 @@ pm2 delete <process-name>
 - **Port 8787**: Internal Node.js server (not exposed publicly)
 - **Port 80/443**: Nginx reverse proxy (public access)
 - **Data storage**: JSON files in `data/` directory
-- **File location**: `/var/www/nihongo-email` (conventional web root)
+- **File location**: `/var/www/eigo-email` (conventional web root)
 
 **Security**: Keep port 8787 private (127.0.0.1) and expose only 80/443 via Nginx.
 

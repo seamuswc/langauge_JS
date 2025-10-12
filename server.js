@@ -15,11 +15,12 @@ const DEFAULT_RECIPIENT = '8zS5w8MHSDQ4Pc12DZRLYQ78hgEwnBemVJMrfjUN6xXj';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8787;
 const HOST = process.env.HOST || '0.0.0.0';
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const DEFAULT_SOURCE_LANGUAGE = 'japanese'; // Native language of learners
+const DEFAULT_TARGET_LANGUAGE = 'english';  // Language being learned
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
-const SUI_RPC_URL = process.env.SUI_RPC_URL || 'https://fullnode.mainnet.sui.io';
 const APTOS_RPC_URL = process.env.APTOS_RPC_URL || 'https://fullnode.mainnet.aptoslabs.com';
 
 function ata(owner, mint) {
@@ -97,10 +98,6 @@ async function main() {
 		recipient: process.env.SOLANA_MERCHANT_ADDRESS || DEFAULT_RECIPIENT,
 		usdcMint: USDC_MINT.toBase58(),
 		defaultAmount: 2,
-		sui: {
-			merchant: process.env.SUI_MERCHANT_ADDRESS || '',
-			usdcCoinType: process.env.SUI_USDC_COIN_TYPE || ''
-		},
 		aptos: {
 			merchant: process.env.APTOS_MERCHANT_ADDRESS || '',
 			usdcCoinType: process.env.APTOS_USDC_COIN_TYPE || ''
@@ -160,9 +157,9 @@ async function main() {
 	// Daily sentence (DeepSeek-backed)
 	app.get('/api/daily-sentence', async (req, reply) => {
 		try {
-			const qTarget = (req.query.target || process.env.TARGET_LANGUAGE || 'japanese').toString();
+			const qTarget = (req.query.target || process.env.TARGET_LANGUAGE || DEFAULT_TARGET_LANGUAGE).toString();
 			const target = qTarget;
-			const source = (req.query.source || (target === 'english' ? 'japanese' : 'english') || process.env.SOURCE_LANGUAGE || 'english').toString();
+			const source = (req.query.source || process.env.SOURCE_LANGUAGE || DEFAULT_SOURCE_LANGUAGE).toString();
 			const level = (req.query.level || 'N3').toString();
 			const result = await generateSentence(source, target, level);
 			const text = [
@@ -185,7 +182,7 @@ async function main() {
 		try {
 			const { email, language } = req.body || {};
 			if (!email || typeof email !== 'string') return reply.code(400).send({ error: 'email required' });
-			const lang = (language || process.env.TARGET_LANGUAGE || 'japanese').toString();
+			const lang = (language || process.env.TARGET_LANGUAGE || DEFAULT_TARGET_LANGUAGE).toString();
 			const store = loadSubscribers();
 			const existing = store.subscribers.find(s => s.email.toLowerCase() === email.toLowerCase());
 			if (existing) {
@@ -226,7 +223,7 @@ async function main() {
 			const store = loadSubscribers();
 			const subs = store.subscribers.filter(s => s.isSubscribed);
 			if (subs.length === 0) return { sent: 0 };
-			const source = process.env.SOURCE_LANGUAGE || 'english';
+			const source = process.env.SOURCE_LANGUAGE || DEFAULT_SOURCE_LANGUAGE;
 			const byLang = subs.reduce((acc, s) => { (acc[s.language] ||= []).push(s); return acc; }, {});
 			let total = 0;
 			for (const [language, users] of Object.entries(byLang)) {
@@ -239,7 +236,7 @@ async function main() {
 					if (language === 'thai') {
 						templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || 66672);
 					} else {
-						templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 65687 : 65685));
+						templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 66878 : 65685));
 					}
 					const ok = await sendEmailWithTemplate(u.email, templateId, templateData, subject);
 					if (ok) total += 1;
@@ -263,7 +260,7 @@ async function main() {
 			const ref = Keypair.generate().publicKey.toBase58();
 			const orderId = 'ord_' + Math.random().toString(36).slice(2, 10);
 			const store = loadOrders();
-			store.orders.push({ orderId, reference: ref, status: 'pending', createdAt: Date.now(), email: normEmail, plan: planKey, amount: PLANS[planKey], language: (language || process.env.TARGET_LANGUAGE || 'japanese').toString(), level: (level || 'N3').toString(), native: (native || '').toString() });
+			store.orders.push({ orderId, reference: ref, status: 'pending', createdAt: Date.now(), email: normEmail, plan: planKey, amount: PLANS[planKey], language: (language || process.env.TARGET_LANGUAGE || DEFAULT_TARGET_LANGUAGE).toString(), level: (level || 'B1').toString(), native: (native || DEFAULT_SOURCE_LANGUAGE).toString() });
 			saveOrders(store);
 			return { orderId, reference: ref, amount: PLANS[planKey] };
 		} catch (e) {
@@ -281,114 +278,6 @@ async function main() {
 			return { transaction: txb64 };
 		} catch (e) {
 			req.log.error(e);
-			return reply.code(500).send({ error: e.message || String(e) });
-		}
-	});
-
-	// Verify Sui payment by tx digest, coin type, and merchant address
-	app.post('/api/sui/verify', async (req, reply) => {
-		try {
-			const { txDigest, reference } = req.body || {};
-			const merchant = (process.env.SUI_MERCHANT_ADDRESS || '').trim();
-			const coinType = (process.env.SUI_USDC_COIN_TYPE || '').trim();
-			if (!txDigest || typeof txDigest !== 'string') return reply.code(400).send({ error: 'txDigest required' });
-			if (!reference || typeof reference !== 'string') return reply.code(400).send({ error: 'reference required' });
-			if (!merchant || !coinType) {
-				req.log.warn('Sui verification attempted but not configured', { merchant: !!merchant, coinType: !!coinType });
-				return reply.code(503).send({ error: 'Sui payment verification is not configured. Please contact support.' });
-			}
-
-			async function suiRpc(method, params) {
-				try {
-					const res = await fetch(SUI_RPC_URL, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ jsonrpc: '2.0', id: '1', method, params })
-					});
-					if (!res.ok) throw new Error('Sui RPC error ' + res.status);
-					const j = await res.json();
-					if (j.error) throw new Error('Sui RPC: ' + (j.error.message || 'unknown'));
-					return j.result;
-				} catch (error) {
-					req.log.error('Sui RPC call failed:', error);
-					throw new Error('Unable to verify Sui transaction. Please try again later.');
-				}
-			}
-
-			// Fetch tx with balance changes
-			const result = await suiRpc('sui_getTransactionBlock', [
-				txDigest,
-				{ showBalanceChanges: true, showEffects: true, showInput: false, showRawInput: false, showEvents: false, showObjectChanges: false }
-			]);
-			
-			if (!result) {
-				return reply.code(404).send({ error: 'Transaction not found. Please check the transaction digest.' });
-			}
-			
-			const changes = (result && result.balanceChanges) || [];
-			// Sum all positive balance changes for merchant in given coin type
-			let receivedUnits = 0n;
-			for (const c of changes) {
-				try {
-					if (c.coinType !== coinType) continue;
-					const ownerAddr = (c.owner && (c.owner.AddressOwner || c.owner.ObjectOwner || c.owner.Shared || '')) || '';
-					if (String(ownerAddr).toLowerCase() !== merchant.toLowerCase()) continue;
-					const delta = BigInt(c.amount || '0');
-					if (delta > 0n) receivedUnits += delta;
-				} catch (error) {
-					req.log.warn('Error processing balance change:', error);
-				}
-			}
-
-			// Find the pending order by reference and required amount (6 decimals)
-			const store = loadOrders();
-			const order = store.orders.find(o => o.reference === reference);
-			if (!order) return reply.code(404).send({ error: 'order not found' });
-			if (order.status === 'paid') return { ok: true, paid: true };
-			const requiredUnits = BigInt(Math.round(Number(order.amount) * 1_000_000));
-			const paid = receivedUnits >= requiredUnits;
-			if (!paid) return { ok: true, paid: false };
-
-			// Mark paid, extend subscription, and send today’s email
-			order.status = 'paid';
-			order.paidAt = Date.now();
-			saveOrders(store);
-			const subStore = loadSubscribers();
-			const idx = subStore.subscribers.findIndex(s => normalizeEmail(s.email) === normalizeEmail(order.email));
-			const now = Date.now();
-			const durationMs = order.plan === 'year' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-			if (idx >= 0) {
-				const current = subStore.subscribers[idx];
-				const base = current.expiresAt && current.expiresAt > now ? current.expiresAt : now;
-				const newExpires = base + durationMs;
-				current.isSubscribed = true;
-				current.expiresAt = newExpires;
-				current.language = order.language || current.language;
-				current.native = order.native || current.native;
-				current.level = order.level || current.level || 'N3';
-				current.updatedAt = now;
-			} else {
-				const expiresAt = now + durationMs;
-				subStore.subscribers.push({ email: order.email, language: order.language, native: order.native || '', level: order.level || 'N3', isSubscribed: true, createdAt: now, updatedAt: now, expiresAt });
-			}
-			saveSubscribers(subStore);
-
-			// Send normal daily email now
-			try {
-				const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
-				const source = process.env.SOURCE_LANGUAGE || 'english';
-				const lang = (user && user.language) || order.language || 'japanese';
-				const lvl = (user && user.level) || order.level || 'N3';
-				const sentence = await generateSentence(source, lang, lvl);
-				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 65687 : lang === 'thai' ? 66672 : 65685));
-				const subject = `${lang === 'english' ? '今日の英語' : lang === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
-				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
-			} catch (e) {
-				req.log.error(e);
-			}
-
-			return { ok: true, paid: true };
-		} catch (e) {
 			return reply.code(500).send({ error: e.message || String(e) });
 		}
 	});
@@ -442,11 +331,11 @@ async function main() {
 					// Send the normal daily email immediately upon first payment confirmation
 					try {
 						const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
-						const source = process.env.SOURCE_LANGUAGE || 'english';
-						const lang = (user && user.language) || order.language || 'japanese';
-						const lvl = (user && user.level) || order.level || 'N3';
+						const source = process.env.SOURCE_LANGUAGE || DEFAULT_SOURCE_LANGUAGE;
+						const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
+						const lvl = (user && user.level) || order.level || 'B1';
 						const sentence = await generateSentence(source, lang, lvl);
-						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 65687 : 65685));
+						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 66878 : 65685));
 						const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 						await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 					} catch (e) {
@@ -559,11 +448,11 @@ async function main() {
 			// Send the normal daily email immediately upon first payment confirmation
 			try {
 				const user = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(order.email));
-				const source = process.env.SOURCE_LANGUAGE || 'english';
-				const lang = (user && user.language) || order.language || 'japanese';
-				const lvl = (user && user.level) || order.level || 'N3';
+				const source = process.env.SOURCE_LANGUAGE || DEFAULT_SOURCE_LANGUAGE;
+				const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
+				const lvl = (user && user.level) || order.level || 'B1';
 				const sentence = await generateSentence(source, lang, lvl);
-				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 65687 : lang === 'thai' ? 66672 : 65685));
+				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 66878 : lang === 'thai' ? 66672 : 65685));
 				const subject = `${lang === 'english' ? '今日の英語' : lang === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 			} catch (e) {
@@ -573,6 +462,125 @@ async function main() {
 			return { ok: true, paid: true };
 		} catch (e) {
 			return reply.code(500).send({ error: e.message || String(e) });
+		}
+	});
+
+	// ============================================
+	// Admin Panel Routes
+	// ============================================
+	
+	const crypto = require('crypto');
+	const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+	const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+	
+	// Simple token generation (in production, use proper JWT)
+	function generateToken(username) {
+		return crypto.createHash('sha256').update(username + Date.now() + process.env.ADMIN_PASSWORD).digest('hex');
+	}
+	
+	// Simple auth middleware
+	function requireAuth(req, reply) {
+		const auth = req.headers.authorization;
+		if (!auth || !auth.startsWith('Bearer ')) {
+			reply.code(401).send({ error: 'Unauthorized' });
+			return false;
+		}
+		// In production, validate JWT properly
+		return true;
+	}
+	
+	// Serve admin panel
+	app.get('/admin', async (req, reply) => {
+		const adminPath = path.join(__dirname, 'admin.html');
+		return reply.type('text/html').sendFile('admin.html');
+	});
+	
+	// Admin login
+	app.post('/admin/login', async (req, reply) => {
+		const { username, password } = req.body || {};
+		if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+			const token = generateToken(username);
+			return { success: true, token };
+		}
+		return reply.code(401).send({ error: 'Invalid credentials' });
+	});
+	
+	// Admin dashboard data
+	app.get('/admin/dashboard', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const subStore = loadSubscribers();
+			const orderStore = loadOrders();
+			const now = Date.now();
+			
+			const active = subStore.subscribers.filter(s => s.isSubscribed && (!s.expiresAt || s.expiresAt > now));
+			const expired = subStore.subscribers.filter(s => s.expiresAt && s.expiresAt <= now);
+			const paidOrders = orderStore.orders.filter(o => o.status === 'paid');
+			const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.amount), 0);
+			
+			return {
+				stats: {
+					total: subStore.subscribers.length,
+					active: active.length,
+					expired: expired.length,
+					revenue: totalRevenue.toFixed(2)
+				},
+				subscribers: subStore.subscribers.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+				orders: orderStore.orders.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+			};
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
+	
+	// Cancel subscription
+	app.post('/admin/cancel-subscription', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const { email } = req.body || {};
+			if (!email) return reply.code(400).send({ error: 'email required' });
+			
+			const subStore = loadSubscribers();
+			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
+			
+			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
+			
+			sub.isSubscribed = false;
+			sub.expiresAt = Date.now(); // Expire immediately
+			sub.updatedAt = Date.now();
+			
+			saveSubscribers(subStore);
+			return { success: true };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
+	
+	// Extend subscription
+	app.post('/admin/extend-subscription', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const { email, days } = req.body || {};
+			if (!email || !days) return reply.code(400).send({ error: 'email and days required' });
+			
+			const subStore = loadSubscribers();
+			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
+			
+			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
+			
+			const now = Date.now();
+			const base = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
+			sub.expiresAt = base + (days * 24 * 60 * 60 * 1000);
+			sub.isSubscribed = true;
+			sub.updatedAt = now;
+			
+			saveSubscribers(subStore);
+			return { success: true, newExpiry: sub.expiresAt };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
 		}
 	});
 
