@@ -91,6 +91,126 @@ async function buildUsdcTransferTx({ payer, recipient, amount, reference }) {
 async function main() {
 	const app = Fastify({ logger: true });
 	await app.register(cors, { origin: true });
+
+	// ============================================
+	// Admin Panel Routes (MUST be before static serving)
+	// ============================================
+	
+	const crypto = require('crypto');
+	const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+	const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+	
+	// Simple token generation
+	function generateToken(username) {
+		return crypto.createHash('sha256').update(username + Date.now() + process.env.ADMIN_PASSWORD).digest('hex');
+	}
+	
+	// Simple auth middleware
+	function requireAuth(req, reply) {
+		const auth = req.headers.authorization;
+		if (!auth || !auth.startsWith('Bearer ')) {
+			reply.code(401).send({ error: 'Unauthorized' });
+			return false;
+		}
+		return true;
+	}
+	
+	// Serve admin panel
+	app.get('/admin', async (req, reply) => {
+		const adminHtml = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+		return reply.type('text/html').send(adminHtml);
+	});
+	
+	// Admin login
+	app.post('/admin/login', async (req, reply) => {
+		const { username, password } = req.body || {};
+		if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+			const token = generateToken(username);
+			return { success: true, token };
+		}
+		return reply.code(401).send({ error: 'Invalid credentials' });
+	});
+	
+	// Admin dashboard data
+	app.get('/admin/dashboard', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const subStore = loadSubscribers();
+			const orderStore = loadOrders();
+			const now = Date.now();
+			
+			const active = subStore.subscribers.filter(s => s.isSubscribed && (!s.expiresAt || s.expiresAt > now));
+			const expired = subStore.subscribers.filter(s => s.expiresAt && s.expiresAt <= now);
+			const paidOrders = orderStore.orders.filter(o => o.status === 'paid');
+			const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.amount), 0);
+			
+			return {
+				stats: {
+					total: subStore.subscribers.length,
+					active: active.length,
+					expired: expired.length,
+					revenue: totalRevenue.toFixed(2)
+				},
+				subscribers: subStore.subscribers.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+				orders: orderStore.orders.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+			};
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
+	
+	// Cancel subscription
+	app.post('/admin/cancel-subscription', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const { email } = req.body || {};
+			if (!email) return reply.code(400).send({ error: 'email required' });
+			
+			const subStore = loadSubscribers();
+			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
+			
+			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
+			
+			sub.isSubscribed = false;
+			sub.expiresAt = Date.now();
+			sub.updatedAt = Date.now();
+			
+			saveSubscribers(subStore);
+			return { success: true };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
+	
+	// Extend subscription
+	app.post('/admin/extend-subscription', async (req, reply) => {
+		if (!requireAuth(req, reply)) return;
+		
+		try {
+			const { email, days } = req.body || {};
+			if (!email || !days) return reply.code(400).send({ error: 'email and days required' });
+			
+			const subStore = loadSubscribers();
+			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
+			
+			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
+			
+			const now = Date.now();
+			const base = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
+			sub.expiresAt = base + (days * 24 * 60 * 60 * 1000);
+			sub.isSubscribed = true;
+			sub.updatedAt = now;
+			
+			saveSubscribers(subStore);
+			return { success: true, newExpiry: sub.expiresAt };
+		} catch (e) {
+			return reply.code(500).send({ error: e.message });
+		}
+	});
+
+	// Static files for React app (after admin routes)
 	await app.register(fastifyStatic, { root: path.join(__dirname, 'react-ui', 'dist'), index: ['index.html'] });
 
 	// Public config for frontend
@@ -462,125 +582,6 @@ async function main() {
 			return { ok: true, paid: true };
 		} catch (e) {
 			return reply.code(500).send({ error: e.message || String(e) });
-		}
-	});
-
-	// ============================================
-	// Admin Panel Routes
-	// ============================================
-	
-	const crypto = require('crypto');
-	const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-	const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
-	
-	// Simple token generation (in production, use proper JWT)
-	function generateToken(username) {
-		return crypto.createHash('sha256').update(username + Date.now() + process.env.ADMIN_PASSWORD).digest('hex');
-	}
-	
-	// Simple auth middleware
-	function requireAuth(req, reply) {
-		const auth = req.headers.authorization;
-		if (!auth || !auth.startsWith('Bearer ')) {
-			reply.code(401).send({ error: 'Unauthorized' });
-			return false;
-		}
-		// In production, validate JWT properly
-		return true;
-	}
-	
-	// Serve admin panel
-	app.get('/admin', async (req, reply) => {
-		const adminPath = path.join(__dirname, 'admin.html');
-		return reply.type('text/html').sendFile('admin.html');
-	});
-	
-	// Admin login
-	app.post('/admin/login', async (req, reply) => {
-		const { username, password } = req.body || {};
-		if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-			const token = generateToken(username);
-			return { success: true, token };
-		}
-		return reply.code(401).send({ error: 'Invalid credentials' });
-	});
-	
-	// Admin dashboard data
-	app.get('/admin/dashboard', async (req, reply) => {
-		if (!requireAuth(req, reply)) return;
-		
-		try {
-			const subStore = loadSubscribers();
-			const orderStore = loadOrders();
-			const now = Date.now();
-			
-			const active = subStore.subscribers.filter(s => s.isSubscribed && (!s.expiresAt || s.expiresAt > now));
-			const expired = subStore.subscribers.filter(s => s.expiresAt && s.expiresAt <= now);
-			const paidOrders = orderStore.orders.filter(o => o.status === 'paid');
-			const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.amount), 0);
-			
-			return {
-				stats: {
-					total: subStore.subscribers.length,
-					active: active.length,
-					expired: expired.length,
-					revenue: totalRevenue.toFixed(2)
-				},
-				subscribers: subStore.subscribers.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
-				orders: orderStore.orders.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-			};
-		} catch (e) {
-			return reply.code(500).send({ error: e.message });
-		}
-	});
-	
-	// Cancel subscription
-	app.post('/admin/cancel-subscription', async (req, reply) => {
-		if (!requireAuth(req, reply)) return;
-		
-		try {
-			const { email } = req.body || {};
-			if (!email) return reply.code(400).send({ error: 'email required' });
-			
-			const subStore = loadSubscribers();
-			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
-			
-			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
-			
-			sub.isSubscribed = false;
-			sub.expiresAt = Date.now(); // Expire immediately
-			sub.updatedAt = Date.now();
-			
-			saveSubscribers(subStore);
-			return { success: true };
-		} catch (e) {
-			return reply.code(500).send({ error: e.message });
-		}
-	});
-	
-	// Extend subscription
-	app.post('/admin/extend-subscription', async (req, reply) => {
-		if (!requireAuth(req, reply)) return;
-		
-		try {
-			const { email, days } = req.body || {};
-			if (!email || !days) return reply.code(400).send({ error: 'email and days required' });
-			
-			const subStore = loadSubscribers();
-			const sub = subStore.subscribers.find(s => normalizeEmail(s.email) === normalizeEmail(email));
-			
-			if (!sub) return reply.code(404).send({ error: 'Subscriber not found' });
-			
-			const now = Date.now();
-			const base = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
-			sub.expiresAt = base + (days * 24 * 60 * 60 * 1000);
-			sub.isSubscribed = true;
-			sub.updatedAt = now;
-			
-			saveSubscribers(subStore);
-			return { success: true, newExpiry: sub.expiresAt };
-		} catch (e) {
-			return reply.code(500).send({ error: e.message });
 		}
 	});
 
