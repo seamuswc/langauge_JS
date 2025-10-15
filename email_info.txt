@@ -1,0 +1,20 @@
+EMAIL API CONFIGURATION
+=======================
+
+TENCENT CLOUD SES (Email Service)
+=================================
+TENCENT_SES_SECRET_ID=your_tencent_secret_id
+TENCENT_SES_SECRET_KEY=your_tencent_secret_key
+TENCENT_SES_REGION=ap-hongkong
+TENCENT_SES_SENDER=your_verified_email@domain.com
+TENCENT_SES_ENDPOINT=ses.tencentcloudapi.com
+
+TEMPLATE ID
+===========
+TENCENT_SES_TEMPLATE_ID_EN=66878    # English template (primary)
+
+DEEPSEEK AI API
+===============
+DEEPSEEK_API_KEY=your_deepseek_api_key
+API_ENDPOINT=https://api.deepseek.com/v1/chat/completions
+MODEL=deepseek-chat

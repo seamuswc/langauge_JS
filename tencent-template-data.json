@@ -1,0 +1,28 @@
+{
+  "template_variables": {
+    "level": "B1",
+    "english": "I have been studying English for three years.",
+    "breakdown": "I（代名詞）（私は）\nhave been studying（動詞句）（～し続けている）\nEnglish（名詞）（英語）\nfor（前置詞）（～の間）\nthree（形容詞）（３つの）\nyears（名詞）（年）",
+    "grammar": "現在完了進行形：過去から現在まで続いている動作を表す／「for\n期間」で動作が続いている時間の長さを表す",
+    "meaning": "私は３年間英語を勉強し続けています。"
+  },
+  "template_usage": {
+    "description": "This template is for Japanese learners studying English",
+    "subject": "今日の英語 [date]",
+    "from": "study@eigo.email",
+    "variables_used": [
+      "{{level}} - Shows the difficulty level (A1, A2, B1, B2, C1, C2)",
+      "{{english}} - The English sentence to learn",
+      "{{breakdown}} - Word-by-word breakdown in Japanese",
+      "{{grammar}} - Grammar explanation in Japanese", 
+      "{{meaning}} - Japanese translation of the English sentence"
+    ]
+  },
+  "deployment_notes": {
+    "template_id": "66878",
+    "region": "ap-singapore",
+    "sender": "study@eigo.email",
+    "css_notes": "All CSS is inline for maximum email client compatibility",
+    "responsive": "Mobile-friendly design with max-width 600px"
+  }
+}

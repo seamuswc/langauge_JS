@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://eigo.email/sitemap.xml
+
+# Crawl-delay for respectful crawling
+Crawl-delay: 1

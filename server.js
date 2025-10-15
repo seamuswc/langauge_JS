@@ -390,7 +390,7 @@ async function main() {
 			let total = 0;
 			for (const [language, users] of Object.entries(byLang)) {
 				const sentence = await generateSentence(source, language);
-				const subject = `${language === 'english' ? '今日の英語' : language === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
+				const subject = `${language === 'english' ? '今日の英語' : language === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}`;
 				const templateData = sentence;
 				for (const u of users) {
 					// Choose template based on language
@@ -398,7 +398,7 @@ async function main() {
 					if (language === 'thai') {
 						templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || 66672);
 					} else {
-						templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || (language === 'english' ? 66878 : 65685));
+						templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${language === 'english' ? '_EN' : ''}`] || 66878);
 					}
 					const ok = await sendEmailWithTemplate(u.email, templateId, templateData, subject);
 					if (ok) total += 1;
@@ -519,7 +519,7 @@ async function main() {
 						const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
 						const lvl = (user && user.level) || order.level || 'B1';
 						const sentence = await generateSentence(source, lang, lvl);
-						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 66878 : 65685));
+						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || 66878);
 						const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 						await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 					} catch (e) {
@@ -646,7 +646,7 @@ async function main() {
 						const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
 						const lvl = (user && user.level) || order.level || 'B1';
 						const sentence = await generateSentence(source, lang, lvl);
-						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || (lang === 'english' ? 66878 : 65685));
+						const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : ''}`] || 66878);
 						const subject = `${lang === 'english' ? '今日の英語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 						await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 					} catch (e) {
@@ -765,7 +765,7 @@ async function main() {
 				const lang = (user && user.language) || order.language || DEFAULT_TARGET_LANGUAGE;
 				const lvl = (user && user.level) || order.level || 'B1';
 				const sentence = await generateSentence(source, lang, lvl);
-				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || (lang === 'english' ? 66878 : lang === 'thai' ? 66672 : 65685));
+				const templateId = Number(process.env[`TENCENT_SES_TEMPLATE_ID${lang === 'english' ? '_EN' : lang === 'thai' ? '_TH' : ''}`] || 66878);
 				const subject = `${lang === 'english' ? '今日の英語' : lang === 'thai' ? '今日のタイ語' : '今日の日本語'} ${new Date().toLocaleDateString('en-US')}`;
 				await sendEmailWithTemplate(order.email, templateId, sentence, subject);
 			} catch (e) {

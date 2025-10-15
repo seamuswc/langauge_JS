@@ -163,7 +163,22 @@ function App() {
 
   return (
     <div style={{maxWidth:560, margin:'3vh auto', padding:24, textAlign:'center'}}>
-      <h1 style={{textAlign:'center', color:'#1a1a1a'}}>毎日英語を学ぶ</h1>
+      <h1 style={{textAlign:'center', color:'#1a1a1a', fontSize:'2.5rem', marginBottom:'20px'}}>毎日英語を学ぶ</h1>
+      <p style={{fontSize:'1.1rem', color:'#666', marginBottom:'30px', lineHeight:'1.6'}}>
+        Learn English daily with personalized lessons designed for Japanese speakers. 
+        Get daily English sentences with Japanese explanations, grammar tips, and vocabulary breakdowns delivered to your inbox.
+      </p>
+      <div style={{display:'flex', justifyContent:'center', gap:'15px', flexWrap:'wrap', marginBottom:'30px'}}>
+        <span style={{background:'#4A90E2', color:'white', padding:'8px 16px', borderRadius:'20px', fontSize:'0.9rem'}}>
+          🎯 Level {level}
+        </span>
+        <span style={{background:'#6ee7b7', color:'#2c3e50', padding:'8px 16px', borderRadius:'20px', fontSize:'0.9rem'}}>
+          📧 Daily Email Lessons
+        </span>
+        <span style={{background:'#f39c12', color:'white', padding:'8px 16px', borderRadius:'20px', fontSize:'0.9rem'}}>
+          🤖 AI-Powered Content
+        </span>
+      </div>
       <div className="stack" style={{margin:'12px 0 16px'}}>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='メールアドレス (email@example.com)' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}/>
         {/* Language selector - English only */}

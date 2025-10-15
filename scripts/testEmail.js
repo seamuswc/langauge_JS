@@ -27,7 +27,7 @@ function parseArgs(argv) {
 
     let templateId, templateData, subject;
     if (lang === 'j') {
-        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID || 65685);
+        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID || 66878);
         const sentence = {
             kanji: '今日は良い天気ですね。',
             hiragana: 'きょうは いい てんき ですね。',
@@ -42,26 +42,32 @@ function parseArgs(argv) {
             breakdown: sentence.breakdown,
             grammar: sentence.grammar
         };
-        subject = '今日の日本語 ' + new Date().toLocaleDateString('en-US');
+        subject = '今日の日本語 ' + new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
     } else {
         templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_EN || 66878);
         const sentence = {
-            english: 'It’s a beautiful day today.',
+            english: 'It\'s a beautiful day today.',
             katakana: 'イッツ・ア・ビューティフル・デイ・トゥデイ',
             pronunciation: 'Itsu a byūtifuru dei tsudei',
-            breakdown: "It’s - it is\nbeautiful - 美しい (utsukushii)\nday - 日 (hi)\ntoday - 今日 (kyou)",
-            grammar: '“It’s a …” is a common structure for describing something. The verb “is” is contracted to “’s”.'
+            breakdown: "It\'s - it is\nbeautiful - 美しい (utsukushii)\nday - 日 (hi)\ntoday - 今日 (kyou)",
+            grammar: '"It\'s a …" is a common structure for describing something. The verb "is" is contracted to "\'s".',
+            meaning: '今日は素晴らしい一日です。',
+            level: 'A1'
         };
         templateData = {
             english: sentence.english,
             katakana: sentence.katakana,
             pronunciation: sentence.pronunciation,
             breakdown: sentence.breakdown,
-            grammar: sentence.grammar
+            grammar: sentence.grammar,
+            meaning: sentence.meaning,
+            level: sentence.level
         };
-        subject = '今日の英語 ' + new Date().toLocaleDateString('en-US');
-    } else if (lang === 't') {
-        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || 66672);
+        subject = '今日の英語 ' + new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    }
+    
+    if (lang === 't') {
+        templateId = Number(process.env.TENCENT_SES_TEMPLATE_ID_TH || 66878);
         const sentence = {
             thai: 'สวัสดีครับ/ค่ะ',
             reading: 'sawatdee krab/ka',
@@ -76,7 +82,7 @@ function parseArgs(argv) {
             grammar: sentence.grammar,
             meaning: sentence.meaning
         };
-        subject = '今日のタイ語 ' + new Date().toLocaleDateString('en-US');
+        subject = '今日のタイ語 ' + new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' });
     }
 
     try {
