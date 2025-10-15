@@ -170,7 +170,24 @@ function App() {
     <div style={{maxWidth:560, margin:'3vh auto', padding:24, textAlign:'center'}}>
       <h1 style={{textAlign:'center', color:'#1a1a1a'}}>毎日英語を学ぶ</h1>
       <div className="stack" style={{margin:'12px 0 16px'}}>
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder='メールアドレス (email@example.com)' style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}/>
+        <input 
+          value={email} 
+          onChange={e=>{
+            setEmail(e.target.value);
+            if (emailError && e.target.value) setEmailError(false);
+          }} 
+          placeholder='メールアドレス (email@example.com)' 
+          style={{
+            padding:12, 
+            fontSize:16, 
+            borderRadius:10, 
+            border: emailError ? '2px solid #e74c3c' : '1px solid #ccc', 
+            background:'#fff', 
+            color:'#1a1a1a',
+            boxShadow: emailError ? '0 0 0 3px rgba(231, 76, 60, 0.1)' : 'none',
+            transition: 'all 0.3s ease'
+          }}
+        />
         {/* Language selector - English only */}
         <select value={language} onChange={e=>setLanguage(e.target.value as any)} style={{padding:12, fontSize:16, borderRadius:10, border:'1px solid #ccc', background:'#fff', color:'#1a1a1a'}}>
           <option value='english'>English (英語)</option>
